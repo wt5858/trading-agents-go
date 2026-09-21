@@ -1,0 +1,5646 @@
+basePath: /api/v1
+definitions:
+  agent.CrewView:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/domain_services.CrewProfile'
+        type: array
+      total:
+        example: 12
+        type: integer
+    type: object
+  agent.IndicatorView:
+    properties:
+      computedAt:
+        example: "2026-09-17 15:30:00"
+        type: string
+      indicators: { }
+      market:
+        example: CN
+        type: string
+      period:
+        example: daily
+        type: string
+      source:
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+    type: object
+  analysis.BatchView:
+    properties:
+      completed:
+        type: integer
+      createdAt:
+        type: string
+      done:
+        type: boolean
+      failed:
+        type: integer
+      id:
+        example: batch_20260917_a1b2c3d4e5f6
+        type: string
+      percent:
+        example: "42.50"
+        type: string
+      taskIds:
+        items:
+          type: string
+        type: array
+      total:
+        type: integer
+      updatedAt:
+        type: string
+      userId:
+        type: integer
+    type: object
+  analysis.CancelView:
+    properties:
+      canceled:
+        example: true
+        type: boolean
+    type: object
+  analysis.ProgressView:
+    properties:
+      currentIndex:
+        type: integer
+      doneSteps:
+        type: integer
+      etaSeconds:
+        type: integer
+      message:
+        type: string
+      percent:
+        example: "42.50"
+        type: string
+      steps:
+        items:
+          $ref: '#/definitions/value_objects.Step'
+        type: array
+      totalSteps:
+        type: integer
+      updatedAt:
+        type: string
+    type: object
+  analysis.ResultView:
+    properties:
+      actionText:
+        type: string
+      createdAt:
+        type: string
+      decision:
+        $ref: '#/definitions/value_objects.Decision'
+      phases:
+        items:
+          $ref: '#/definitions/value_objects.PhaseOutcome'
+        type: array
+      reports:
+        additionalProperties:
+          type: string
+        type: object
+      symbol:
+        example: 600519.SH
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+      usage:
+        $ref: '#/definitions/value_objects.TokenUsage'
+    type: object
+  analysis.SubmitBatchRequest:
+    properties:
+      analysts:
+        items:
+          type: string
+        type: array
+      codes:
+        example:
+          - "600519"
+          - "000001"
+        items:
+          type: string
+        type: array
+      depth:
+        example: 3
+        type: integer
+      llmModel:
+        type: string
+      market:
+        example: CN
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+    required:
+      - codes
+    type: object
+  analysis.SubmitBatchView:
+    properties:
+      batch:
+        $ref: '#/definitions/analysis.BatchView'
+      tasks:
+        items:
+          $ref: '#/definitions/analysis.TaskView'
+        type: array
+    type: object
+  analysis.SubmitRequest:
+    properties:
+      analysts:
+        items:
+          type: string
+        type: array
+      code:
+        example: "600519"
+        type: string
+      depth:
+        example: 3
+        type: integer
+      llmModel:
+        type: string
+      market:
+        example: CN
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+    required:
+      - code
+    type: object
+  analysis.TaskView:
+    properties:
+      analysts:
+        items:
+          type: string
+        type: array
+      attempts:
+        type: integer
+      batchId:
+        type: string
+      createdAt:
+        type: string
+      depth:
+        example: 3
+        type: integer
+      error:
+        type: string
+      finishedAt:
+        type: string
+      id:
+        example: task_20260917_a1b2c3d4e5f6
+        type: string
+      market:
+        example: CN
+        type: string
+      progress:
+        $ref: '#/definitions/analysis.ProgressView'
+      startedAt:
+        type: string
+      status:
+        example: running
+        type: string
+      statusText:
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+      userId:
+        type: integer
+    type: object
+  domain_services.ConfigSnapshot:
+    properties:
+      generatedAt:
+        type: string
+      providers:
+        items:
+          $ref: '#/definitions/domain_services.SanitizedProvider'
+        type: array
+      settings:
+        items:
+          $ref: '#/definitions/domain_services.SanitizedSetting'
+        type: array
+    type: object
+  domain_services.CrewProfile:
+    properties:
+      displayName:
+        type: string
+      kind:
+        type: string
+      layer:
+        type: string
+      phase:
+        type: string
+      policy:
+        type: string
+      step:
+        type: string
+      tools:
+        items:
+          type: string
+        type: array
+    type: object
+  domain_services.ProbeResult:
+    properties:
+      message:
+        type: string
+      model:
+        type: string
+      ok:
+        type: boolean
+      providerId:
+        type: integer
+      providerName:
+        type: string
+    type: object
+  domain_services.SanitizedProvider:
+    properties:
+      apiKey:
+        type: string
+      baseUrl:
+        type: string
+      createdAt:
+        type: string
+      enabled:
+        type: boolean
+      hasApiKey:
+        type: boolean
+      id:
+        type: integer
+      kind:
+        type: string
+      models:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      priority:
+        type: integer
+      updatedAt:
+        type: string
+      usable:
+        type: boolean
+    type: object
+  domain_services.SanitizedSetting:
+    properties:
+      description:
+        type: string
+      key:
+        type: string
+      scope:
+        type: string
+      secret:
+        type: boolean
+      updatedAt:
+        type: string
+      updatedBy:
+        type: integer
+      value:
+        type: string
+    type: object
+  identity.ChangePasswordRequest:
+    properties:
+      newPassword:
+        type: string
+      oldPassword:
+        type: string
+    required:
+      - newPassword
+      - oldPassword
+    type: object
+  identity.ChangePasswordView:
+    properties:
+      changed:
+        example: true
+        type: boolean
+    type: object
+  identity.CreateUserRequest:
+    properties:
+      email:
+        example: trader01@example.com
+        type: string
+      password:
+        type: string
+      role:
+        enum:
+          - user
+          - admin
+        example: user
+        type: string
+      username:
+        example: trader01
+        type: string
+    required:
+      - password
+      - username
+    type: object
+  identity.DeactivateView:
+    properties:
+      deactivated:
+        example: true
+        type: boolean
+    type: object
+  identity.LoginRequest:
+    properties:
+      password:
+        example: secret
+        type: string
+      username:
+        example: admin
+        type: string
+    required:
+      - password
+      - username
+    type: object
+  identity.LogoutView:
+    properties:
+      loggedOut:
+        example: true
+        type: boolean
+    type: object
+  identity.MeView:
+    properties:
+      role:
+        example: admin
+        type: string
+      userId:
+        type: integer
+      username:
+        type: string
+    type: object
+  identity.RefreshRequest:
+    properties:
+      refreshToken:
+        type: string
+    required:
+      - refreshToken
+    type: object
+  identity.ResetPasswordRequest:
+    properties:
+      newPassword:
+        type: string
+    required:
+      - newPassword
+    type: object
+  identity.ResetPasswordView:
+    properties:
+      reset:
+        example: true
+        type: boolean
+    type: object
+  identity.TokenResponse:
+    properties:
+      accessToken:
+        type: string
+      expiresIn:
+        example: 3600
+        type: integer
+      refreshToken:
+        type: string
+      tokenType:
+        example: Bearer
+        type: string
+      user:
+        $ref: '#/definitions/identity.UserView'
+    type: object
+  identity.UpdateProfileRequest:
+    properties:
+      email:
+        example: trader01@example.com
+        type: string
+      preferences:
+        $ref: '#/definitions/value_objects.Preferences'
+    type: object
+  identity.UserView:
+    properties:
+      active:
+        type: boolean
+      concurrentLimit:
+        type: integer
+      email:
+        type: string
+      id:
+        type: integer
+      preferences: { }
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  notification.DeleteView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  notification.MarkAllReadView:
+    properties:
+      marked:
+        example: 12
+        type: integer
+    type: object
+  notification.MarkReadView:
+    properties:
+      read:
+        example: true
+        type: boolean
+    type: object
+  notification.NotificationView:
+    properties:
+      body:
+        type: string
+      createdAt:
+        type: string
+      id:
+        example: 1024
+        type: integer
+      kind:
+        example: analysis_completed
+        type: string
+      kindText:
+        type: string
+      level:
+        example: info
+        type: string
+      levelText:
+        type: string
+      linkId:
+        type: string
+      linkType:
+        example: analysis_task
+        type: string
+      read:
+        type: boolean
+      readAt:
+        type: string
+      title:
+        type: string
+    type: object
+  notification.UnreadCountView:
+    properties:
+      unread:
+        example: 3
+        type: integer
+    type: object
+  paper.AccountListResult:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/paper.AccountView'
+        type: array
+      disclaimer:
+        type: string
+    type: object
+  paper.AccountView:
+    properties:
+      cash:
+        example: "831200.00"
+        type: string
+      createdAt:
+        example: "2024-05-31 09:30:00"
+        type: string
+      id:
+        example: pacct_2f7c9a1b
+        type: string
+      initialCash:
+        example: "1000000.00"
+        type: string
+      name:
+        example: 打新策略
+        type: string
+      positionCount:
+        type: integer
+      realizedPnl:
+        type: string
+      simulated:
+        description: |-
+          Simulated 恒为 true。它存在的理由和 disclaimer 一样：
+          消费者不该有任何机会把这份数据当成真实账户的快照。
+        example: true
+        type: boolean
+      totalFee:
+        type: string
+      updatedAt:
+        example: "2024-05-31 14:57:12"
+        type: string
+      userId:
+        type: integer
+    type: object
+  paper.OpenAccountRequest:
+    properties:
+      initialCash:
+        example: "1000000.00"
+        type: string
+      name:
+        example: 打新策略
+        type: string
+    required:
+      - initialCash
+    type: object
+  paper.OpenAccountResult:
+    properties:
+      account:
+        $ref: '#/definitions/paper.AccountView'
+      disclaimer:
+        type: string
+    type: object
+  paper.PlaceOrderRequest:
+    properties:
+      code:
+        example: 600519.SH
+        type: string
+      fee:
+        example: "5.00"
+        type: string
+      market:
+        example: CN
+        type: string
+      price:
+        description: Price 留空表示按最新行情成交。
+        example: "1688.00"
+        type: string
+      quantity:
+        example: "100"
+        type: string
+      side:
+        enum:
+          - buy
+          - sell
+        example: buy
+        type: string
+    required:
+      - code
+      - quantity
+      - side
+    type: object
+  paper.PlaceOrderResult:
+    properties:
+      disclaimer:
+        type: string
+      trade:
+        $ref: '#/definitions/paper.TradeView'
+    type: object
+  paper.PortfolioResult:
+    properties:
+      disclaimer:
+        type: string
+      portfolio:
+        $ref: '#/definitions/paper.PortfolioView'
+    type: object
+  paper.PortfolioView:
+    properties:
+      accountId:
+        type: string
+      cash:
+        type: string
+      initialCash:
+        type: string
+      marketValue:
+        type: string
+      positionCount:
+        type: integer
+      positions:
+        items:
+          $ref: '#/definitions/paper.PositionView'
+        type: array
+      realizedPnl:
+        type: string
+      simulated:
+        example: true
+        type: boolean
+      totalCost:
+        type: string
+      totalPnl:
+        type: string
+      totalValue:
+        type: string
+      unrealizedPnl:
+        type: string
+    type: object
+  paper.PositionView:
+    properties:
+      avgCost:
+        example: "1688.05"
+        type: string
+      costBasis:
+        example: "168805.00"
+        type: string
+      hasQuote:
+        description: HasQuote=false 表示上面三个字段是按成本价的回退值，不是实时估值。
+        type: boolean
+      market:
+        example: CN
+        type: string
+      marketPrice:
+        type: string
+      marketValue:
+        type: string
+      quantity:
+        example: "100"
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      unrealizedPnl:
+        type: string
+    type: object
+  paper.ResetAccountResult:
+    properties:
+      account:
+        $ref: '#/definitions/paper.AccountView'
+      disclaimer:
+        description: |-
+          Disclaimer 与 note 是两回事：note 解释这次重置做了什么，
+          disclaimer 声明这些数字本来就不是真实业绩。
+        type: string
+      note:
+        type: string
+    type: object
+  paper.TradeHistoryResult:
+    properties:
+      disclaimer:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/paper.TradeView'
+        type: array
+      page:
+        example: 1
+        type: integer
+      pageSize:
+        example: 20
+        type: integer
+      total:
+        type: integer
+    type: object
+  paper.TradeView:
+    properties:
+      amount:
+        example: "168800.00"
+        type: string
+      cashAfter:
+        type: string
+      fee:
+        example: "5.00"
+        type: string
+      id:
+        example: ptrade_6b31de04
+        type: string
+      market:
+        example: CN
+        type: string
+      price:
+        example: "1688.00"
+        type: string
+      quantity:
+        example: "100"
+        type: string
+      realizedPnl:
+        type: string
+      side:
+        enum:
+          - buy
+          - sell
+        example: buy
+        type: string
+      sideText:
+        example: 买入
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      tradedAt:
+        example: "2024-05-31 14:57:12"
+        type: string
+    type: object
+  report.DeleteView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  report.ReportSummaryView:
+    properties:
+      action:
+        enum:
+          - buy
+          - hold
+          - sell
+          - reduce
+          - increase
+          - undecided
+        type: string
+      actionText:
+        type: string
+      confidence:
+        type: string
+      createdAt:
+        type: string
+      id:
+        example: rpt_20260917_a1b2c3d4e5f6
+        type: string
+      market:
+        example: CN
+        type: string
+      outline:
+        items:
+          $ref: '#/definitions/report.SectionOutlineView'
+        type: array
+      riskScore:
+        type: string
+      summary:
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      taskId:
+        example: task_20260917_a1b2c3d4e5f6
+        type: string
+      title:
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+      userId:
+        type: integer
+    type: object
+  report.ReportView:
+    properties:
+      action:
+        enum:
+          - buy
+          - hold
+          - sell
+          - reduce
+          - increase
+          - undecided
+        type: string
+      actionText:
+        type: string
+      confidence:
+        description: |-
+          下面这组直接读聚合里固化的数字。这里刻意不写 Confidence*100 之类的换算，
+          也不按 TargetPrice/StopLoss 现算盈亏比：派生量是生成当时算好并落库的事实，
+          接口层重算会让同一份报告每刷新一次都可能给出不同的数字。
+        type: string
+      createdAt:
+        type: string
+      id:
+        example: rpt_20260917_a1b2c3d4e5f6
+        type: string
+      market:
+        example: CN
+        type: string
+      position:
+        type: string
+      riskScore:
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/report.SectionView'
+        type: array
+      stopLoss:
+        type: string
+      summary:
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      targetPrice:
+        type: string
+      taskId:
+        example: task_20260917_a1b2c3d4e5f6
+        type: string
+      title:
+        type: string
+      tradeDate:
+        example: "2026-09-17"
+        type: string
+      userId:
+        type: integer
+    type: object
+  report.SectionOutlineView:
+    properties:
+      key:
+        example: conclusion
+        type: string
+      order:
+        type: integer
+      title:
+        type: string
+    type: object
+  report.SectionView:
+    properties:
+      content:
+        type: string
+      key:
+        example: conclusion
+        type: string
+      order:
+        type: integer
+      title:
+        type: string
+    type: object
+  response.Envelope:
+    properties:
+      code:
+        type: integer
+      data: { }
+      message:
+        type: string
+    type: object
+  response.PageData:
+    properties:
+      items: { }
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      total:
+        type: integer
+    type: object
+  scheduling.CreateJobRequest:
+    properties:
+      cron:
+        description: |-
+          Cron 是 5 段标准表达式（也接受 @daily 这类描述符），不是 6 段带秒的写法——
+          例子里多一段秒，是这个接口最常见的 400。
+        example: 30 9 * * *
+        type: string
+      kind:
+        enum:
+          - market_sync
+          - scheduled_analysis
+          - data_cleanup
+        type: string
+      maxConsecutiveFailures:
+        type: integer
+      name:
+        type: string
+      payload:
+        additionalProperties: { }
+        description: Payload 原样透传给运行器，接口层不解释它的结构——那是运行器的语义。
+        type: object
+      timeoutSeconds:
+        type: integer
+    required:
+      - cron
+      - kind
+      - name
+    type: object
+  scheduling.CronPreviewView:
+    properties:
+      cron:
+        example: 30 9 * * *
+        type: string
+      next:
+        items:
+          type: string
+        type: array
+    type: object
+  scheduling.DeleteJobView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  scheduling.ExecutionView:
+    properties:
+      attempt:
+        type: integer
+      delayMs:
+        type: integer
+      durationMs:
+        description: "DurationMs / DelayMs / QueueWaitMs 都读固化值或由固化值直接得出，\n不在读路径上用
+          time.Since 重算——执行记录是历史，耗时不该随每次刷新而变长。\n\n三段时长各自回答一个不同的问题，合成一个数字就再也分不开：\n\tDelayMs
+          \     调度器多久之后才发现这次触发（上限是巡检间隔）\n\tQueueWaitMs  消息在队列里排了多久（变大说明消费者不够用）\n\tDurationMs
+          \  真正执行花了多久"
+        type: integer
+      error:
+        type: string
+      finishedAt:
+        type: string
+      id:
+        type: string
+      itemCount:
+        type: integer
+      jobId:
+        type: string
+      kind:
+        type: string
+      manual:
+        type: boolean
+      queueWaitMs:
+        type: integer
+      queuedAt:
+        type: string
+      scheduledAt:
+        type: string
+      startedAt:
+        type: string
+      status:
+        type: string
+      statusText:
+        type: string
+      summary:
+        type: string
+    type: object
+  scheduling.JobView:
+    properties:
+      consecutiveFailures:
+        type: integer
+      createdAt:
+        type: string
+      createdBy:
+        type: integer
+      cron:
+        example: 30 9 * * *
+        type: string
+      cronValid:
+        type: boolean
+      id:
+        type: string
+      kind:
+        type: string
+      kindText:
+        type: string
+      lastRunAt:
+        type: string
+      lastStatus:
+        type: string
+      lastStatusText:
+        type: string
+      maxConsecutiveFailures:
+        type: integer
+      name:
+        type: string
+      nextRunAt:
+        type: string
+      payload:
+        additionalProperties: { }
+        type: object
+      status:
+        type: string
+      statusText:
+        type: string
+      successRate:
+        description: |-
+          SuccessRate 直接照搬聚合里固化好的派生量。
+          这里刻意不写 float64(success)/float64(total)*100：成功率是写入当时算好并落库的
+          事实，接口层重算会让列表接口和详情接口在并发写入时给出互相矛盾的数字。
+        type: string
+      successRuns:
+        type: integer
+      timeoutSeconds:
+        type: integer
+      totalRuns:
+        type: integer
+      updatedAt:
+        type: string
+    type: object
+  scheduling.PauseJobView:
+    properties:
+      paused:
+        example: true
+        type: boolean
+    type: object
+  scheduling.PreviewCronRequest:
+    properties:
+      count:
+        description: Count 是推演条数，不传或非正数按 5 条；上限 50 由值对象收敛。
+        example: 5
+        type: integer
+      cron:
+        description: Cron 与创建接口同一套规则：5 段标准表达式，或 @daily 这类描述符。
+        example: 30 9 * * *
+        type: string
+    required:
+      - cron
+    type: object
+  scheduling.ResumeJobView:
+    properties:
+      resumed:
+        example: true
+        type: boolean
+    type: object
+  scheduling.UpdateJobRequest:
+    properties:
+      cron:
+        example: 30 9 * * *
+        type: string
+      maxConsecutiveFailures:
+        type: integer
+      name:
+        type: string
+      payload:
+        additionalProperties: { }
+        type: object
+      timeoutSeconds:
+        type: integer
+    type: object
+  screening.ColumnView:
+    properties:
+      field:
+        example: pe
+        type: string
+      label:
+        example: 市盈率
+        type: string
+      unit:
+        example: '%'
+        type: string
+    type: object
+  screening.CriterionRequest:
+    properties:
+      field:
+        example: pe
+        type: string
+      operator:
+        enum:
+          - gt
+          - gte
+          - lt
+          - lte
+          - eq
+          - ne
+          - between
+          - in
+          - not_in
+        example: lt
+        type: string
+      values:
+        description: |-
+          Values 一律以字符串传，个数由比较符的元数决定：between 恰好 2 个，
+          in/not_in 至少 1 个，其余恰好 1 个。
+        example:
+          - "20"
+        items:
+          type: string
+        type: array
+    required:
+      - field
+      - operator
+      - values
+    type: object
+  screening.CriterionView:
+    properties:
+      field:
+        example: pe
+        type: string
+      label:
+        example: 市盈率
+        type: string
+      operator:
+        enum:
+          - gt
+          - gte
+          - lt
+          - lte
+          - eq
+          - ne
+          - between
+          - in
+          - not_in
+        example: lt
+        type: string
+      sortOrder:
+        type: integer
+      values:
+        example:
+          - "20"
+        items:
+          type: string
+        type: array
+    type: object
+  screening.DeleteResultView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  screening.FieldDictView:
+    properties:
+      fields:
+        items:
+          $ref: '#/definitions/screening.FieldView'
+        type: array
+    type: object
+  screening.FieldView:
+    properties:
+      kind:
+        description: |-
+          Kind 决定该字段能接受哪些比较符：numeric 有全序，九个比较符全可用；
+          categorical 无序，只剩相等与集合运算。Operators 已按此过滤，
+          前端不必自己再推一遍。
+        enum:
+          - numeric
+          - categorical
+        example: numeric
+        type: string
+      label:
+        example: 净资产收益率
+        type: string
+      name:
+        description: Name 就是提交 criterionRequest.field 时要填的串。
+        example: roe
+        type: string
+      operators:
+        items:
+          $ref: '#/definitions/screening.OperatorView'
+        type: array
+      unit:
+        description: Unit 是量纲提示（% / 万元），供输入框渲染后缀；无量纲字段不下发该键。
+        example: '%'
+        type: string
+    type: object
+  screening.OperatorView:
+    properties:
+      label:
+        example: 介于
+        type: string
+      maxValues:
+        example: 2
+        type: integer
+      minValues:
+        description: |-
+          ValueCount 告诉前端这个比较符要渲染几个输入框：
+          1 个（大于）、2 个（介于）、或者一个可增删的多值控件（属于，min=1 max=0）。
+        example: 2
+        type: integer
+      value:
+        enum:
+          - gt
+          - gte
+          - lt
+          - lte
+          - eq
+          - ne
+          - between
+          - in
+          - not_in
+        example: between
+        type: string
+    type: object
+  screening.ResultRowView:
+    properties:
+      market:
+        example: CN
+        type: string
+      name:
+        example: 贵州茅台
+        type: string
+      symbol:
+        example: 600519.SH
+        type: string
+      values:
+        additionalProperties: { }
+        description: |-
+          Values 的键是字段名，值为字符串（数值字段）、字符串（类别字段）或 null（缺失）。
+          数值以字符串输出，理由同其它上下文：JSON 数字在前端就是 float64。
+        type: object
+    type: object
+  screening.ResultSetView:
+    properties:
+      asOf:
+        description: |-
+          AsOf 必须回给前端：筛选是对某一天横截面的查询，盘后与次日早盘
+          执行同一个模板结果不同是正常的，但用户看不到日期就只会觉得系统不稳定。
+        example: "2024-05-31"
+        type: string
+      columns:
+        items:
+          $ref: '#/definitions/screening.ColumnView'
+        type: array
+      items:
+        items:
+          $ref: '#/definitions/screening.ResultRowView'
+        type: array
+      total:
+        description: Total 是命中总数，可能大于 len(items)——超出条数上限的部分被截断。
+        example: 128
+        type: integer
+      truncated:
+        description: Truncated 为真表示 total 超过了本次的条数上限，页面应提示用户收紧条件。
+        type: boolean
+    type: object
+  screening.RunRequest:
+    properties:
+      criteria:
+        items:
+          $ref: '#/definitions/screening.CriterionRequest'
+        type: array
+      limit:
+        description: Limit 留空按 50 条，上限 500；超出部分由值对象直接收敛，不报错。
+        example: 50
+        type: integer
+      sortDirection:
+        enum:
+          - asc
+          - desc
+        example: desc
+        type: string
+      sortField:
+        example: total_mv
+        type: string
+    required:
+      - criteria
+    type: object
+  screening.TemplateRequest:
+    properties:
+      criteria:
+        description: |-
+          Criteria 整份替换，没有「增量加一条」的形状：编辑表单一次提交整份列表，
+          增量语义会让「用户删掉了一条」无法表达。最多 20 条。
+        items:
+          $ref: '#/definitions/screening.CriterionRequest'
+        type: array
+      description:
+        type: string
+      isPublic:
+        description: IsPublic 置真即上架「选股策略广场」：任何登录用户都能查看并执行，但改不动。
+        type: boolean
+      limit:
+        example: 50
+        type: integer
+      name:
+        example: 低估值蓝筹
+        type: string
+      sortDirection:
+        enum:
+          - asc
+          - desc
+        example: desc
+        type: string
+      sortField:
+        example: total_mv
+        type: string
+    type: object
+  screening.TemplateView:
+    properties:
+      createdAt:
+        type: string
+      criteria:
+        items:
+          $ref: '#/definitions/screening.CriterionView'
+        type: array
+      description:
+        type: string
+      id:
+        type: integer
+      isPublic:
+        type: boolean
+      limit:
+        example: 50
+        type: integer
+      name:
+        type: string
+      sortDirection:
+        enum:
+          - asc
+          - desc
+        example: desc
+        type: string
+      sortField:
+        description: |-
+          SortField / SortDirection 恒为已展开的有效值：模板未指定排序时，
+          这里回的是兜底的 total_mv desc，而不是空串。
+        example: total_mv
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  stock.FinancialView:
+    properties:
+      debtRatio:
+        type: string
+      eps:
+        type: string
+      grossMargin:
+        type: string
+      netMargin:
+        type: string
+      netProfit:
+        type: string
+      pb:
+        type: string
+      pe:
+        type: string
+      periodType:
+        example: annual
+        type: string
+      reportDate:
+        example: "2023-12-31"
+        type: string
+      revenue:
+        type: string
+      roe:
+        description: |-
+          四个比率都是百分数口径，且都取自落库值；netMargin 尤其不要在前端
+          用 netProfit/revenue 复算——两者来自不同的数据源字段，口径未必一致。
+        type: string
+      source:
+        type: string
+      symbol:
+        example: "600519"
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  stock.KlineView:
+    properties:
+      adjusted:
+        type: boolean
+      amount:
+        type: string
+      close:
+        type: string
+      high:
+        type: string
+      low:
+        type: string
+      open:
+        type: string
+      period:
+        example: daily
+        type: string
+      source:
+        type: string
+      symbol:
+        example: "600519"
+        type: string
+      tradeDate:
+        example: "2024-05-31"
+        type: string
+      volume:
+        type: string
+    type: object
+  stock.NewsView:
+    properties:
+      content:
+        type: string
+      negative:
+        type: boolean
+      positive:
+        type: boolean
+      publishedAt:
+        type: string
+      sentiment:
+        description: |-
+          情感分是 [-1, 1] 区间的数值，同样以字符串输出；
+          positive/negative 是服务端按 ±0.2 中性带给出的判定，前端不要自己定阈值。
+        example: "0.62"
+        type: string
+      source:
+        type: string
+      symbol:
+        example: "600519"
+        type: string
+      title:
+        type: string
+      url:
+        type: string
+    type: object
+  stock.QuoteView:
+    properties:
+      amount:
+        type: string
+      change:
+        description: Change / ChangePct 直接透传落库值，不在这里用 Close-PreClose 重算。
+        type: string
+      changePct:
+        type: string
+      close:
+        type: string
+      high:
+        type: string
+      limitUp:
+        type: boolean
+      low:
+        type: string
+      market:
+        example: CN
+        type: string
+      open:
+        type: string
+      pb:
+        type: string
+      pe:
+        type: string
+      preClose:
+        type: string
+      source:
+        type: string
+      symbol:
+        example: "600519"
+        type: string
+      tradeDate:
+        example: "2024-05-31"
+        type: string
+      turnover:
+        type: string
+      updatedAt:
+        type: string
+      volume:
+        type: string
+    type: object
+  stock.StockView:
+    properties:
+      analyzable:
+        type: boolean
+      area:
+        type: string
+      circulatingMarketValue:
+        type: string
+      delisted:
+        type: boolean
+      fullCode:
+        example: 600519.SH
+        type: string
+      id:
+        type: integer
+      industry:
+        type: string
+      listDate:
+        example: "2001-08-27"
+        type: string
+      market:
+        example: CN
+        type: string
+      name:
+        type: string
+      source:
+        type: string
+      symbol:
+        example: "600519"
+        type: string
+      totalMarketValue:
+        description: |-
+          市值原样输出数据源给的值，前端要换单位自己换——服务端换一次单位，
+          跨源对账时就再也说不清页面上的数字是哪个口径了。
+
+          数值一律以字符串输出：JavaScript 的 number 就是 float64，
+          服务端再怎么用 decimal 精确计算，一旦以 JSON 数字送出去，
+          前端 JSON.parse 的那一刻精度就没了。
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  stock.SyncRunView:
+    properties:
+      cursor:
+        description: |-
+          cursor 是断点续传的游标，记录最后一个处理完的标的代码；
+          resumable 为 true 时可以从这里接着跑。
+        type: string
+      durationMs:
+        type: integer
+      error:
+        type: string
+      failed:
+        type: integer
+      finishedAt:
+        type: string
+      id:
+        type: string
+      kind:
+        example: quotes
+        type: string
+      kindName:
+        example: 行情快照
+        type: string
+      market:
+        example: CN
+        type: string
+      resumable:
+        type: boolean
+      skipped:
+        type: integer
+      startedAt:
+        type: string
+      status:
+        example: succeeded
+        type: string
+      succeeded:
+        description: |-
+          successRate 与 quote 里的比率一样是字符串：成功率是 decimal 算出来的，
+          走 JSON 数字就会在前端退化成 float64。
+        type: integer
+      successRate:
+        type: string
+      total:
+        type: integer
+      triggeredBy:
+        example: user:1
+        type: string
+    type: object
+  stock.TriggerSyncRequest:
+    properties:
+      kind:
+        example: quotes
+        type: string
+      market:
+        example: CN
+        type: string
+    required:
+      - kind
+      - market
+    type: object
+  system.CreateProviderRequest:
+    properties:
+      apiKey:
+        example: sk-****
+        type: string
+      baseUrl:
+        example: https://api.deepseek.com
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      kind:
+        enum:
+          - openai_compat
+          - anthropic
+          - google
+        example: openai_compat
+        type: string
+      models:
+        example:
+          - deepseek-chat
+          - deepseek-reasoner
+        items:
+          type: string
+        type: array
+      name:
+        example: deepseek
+        type: string
+      priority:
+        example: 100
+        type: integer
+    required:
+      - kind
+      - name
+    type: object
+  system.DeletedView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  system.ReloadRequest:
+    properties:
+      reason:
+        example: 切换默认模型后让各消费方重读
+        type: string
+      scope:
+        enum:
+          - llm
+          - market
+          - sync
+          - feature
+        example: llm
+        type: string
+    required:
+      - scope
+    type: object
+  system.ReloadRequestedView:
+    properties:
+      requested:
+        example: true
+        type: boolean
+    type: object
+  system.RotateKeyRequest:
+    properties:
+      apiKey:
+        example: sk-****
+        type: string
+    required:
+      - apiKey
+    type: object
+  system.UpdateProviderRequest:
+    properties:
+      baseUrl:
+        example: https://api.deepseek.com
+        type: string
+      models:
+        example:
+          - deepseek-chat
+          - deepseek-reasoner
+        items:
+          type: string
+        type: array
+      priority:
+        example: 100
+        type: integer
+    type: object
+  system.UpsertSettingRequest:
+    properties:
+      description:
+        example: 默认分析模型
+        type: string
+      key:
+        example: llm.default_model
+        type: string
+      value:
+        example: deepseek-chat
+        type: string
+    required:
+      - key
+    type: object
+  value_objects.Action:
+    enum:
+      - buy
+      - hold
+      - sell
+      - reduce
+      - increase
+      - undecided
+    type: string
+    x-enum-varnames:
+      - ActionBuy
+      - ActionHold
+      - ActionSell
+      - ActionReduce
+      - ActionIncrease
+      - ActionUndecided
+  value_objects.Decision:
+    properties:
+      action:
+        $ref: '#/definitions/value_objects.Action'
+      confidence:
+        description: 0-1
+        type: number
+      position:
+        description: 建议仓位百分比 0-100
+        type: number
+      reasoning:
+        type: string
+      risk_score:
+        description: 0-10，越高越危险
+        type: number
+      stop_loss:
+        type: number
+      summary:
+        type: string
+      target_price:
+        type: number
+    type: object
+  value_objects.Market:
+    enum:
+      - CN
+      - HK
+      - US
+      - ""
+    type: string
+    x-enum-comments:
+      MarketCN: A 股
+      MarketHK: 港股
+      MarketUS: 美股
+    x-enum-descriptions:
+      - A 股
+      - 港股
+      - 美股
+      - ""
+    x-enum-varnames:
+      - MarketCN
+      - MarketHK
+      - MarketUS
+      - MarketUnknown
+  value_objects.PhaseOutcome:
+    properties:
+      agents:
+        items:
+          type: string
+        type: array
+      duration_seconds:
+        type: number
+      failed:
+        items:
+          type: string
+        type: array
+      phase:
+        type: string
+    type: object
+  value_objects.Preferences:
+    properties:
+      defaultAnalysts:
+        items:
+          type: string
+        type: array
+      defaultDepth:
+        type: integer
+      defaultMarket:
+        $ref: '#/definitions/value_objects.Market'
+      riskPreference:
+        type: string
+    type: object
+  value_objects.Step:
+    properties:
+      detail:
+        type: string
+      done:
+        type: boolean
+      elapsed_seconds:
+        type: integer
+      failed:
+        type: boolean
+      key:
+        type: string
+      name:
+        type: string
+    type: object
+  value_objects.TokenUsage:
+    properties:
+      calls:
+        type: integer
+      completion_tokens:
+        type: integer
+      cost_usd:
+        type: number
+      prompt_tokens:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
+  watchlist.AddStockRequest:
+    properties:
+      code:
+        example: 600519.SH
+        type: string
+      market:
+        description: Market 留空时由代码自动推断，只有代码本身不带后缀时才需要显式给出。
+        example: CN
+        type: string
+      note:
+        example: 业绩拐点，盯一下
+        type: string
+    required:
+      - code
+    type: object
+  watchlist.DeletedView:
+    properties:
+      deleted:
+        example: true
+        type: boolean
+    type: object
+  watchlist.GroupDetailView:
+    properties:
+      group:
+        $ref: '#/definitions/watchlist.GroupView'
+      items:
+        items:
+          $ref: '#/definitions/watchlist.ItemView'
+        type: array
+    type: object
+  watchlist.GroupNameRequest:
+    properties:
+      name:
+        example: 科技股
+        type: string
+    required:
+      - name
+    type: object
+  watchlist.GroupView:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: integer
+      itemCount:
+        type: integer
+      name:
+        example: 科技股
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  watchlist.ItemView:
+    properties:
+      changePct:
+        type: string
+      createdAt:
+        type: string
+      gainPctSinceAdded:
+        type: string
+      market:
+        example: CN
+        type: string
+      note:
+        type: string
+      price:
+        description: |-
+          行情缺失时以下字段为 null，前端显示「暂无行情」，而不是 0。
+
+          类型是 *string 而不是 *float64：指针保留「有没有这个数」的语义，
+          字符串保留精度。两者都不能省——用 float64 则 12.34 到前端可能变成
+          12.339999999999999，用非指针则「停牌没有行情」和「价格为 0」再也分不开。
+        type: string
+      referenceDate:
+        type: string
+      referencePrice:
+        type: string
+      sortOrder:
+        type: integer
+      symbol:
+        example: "600519"
+        type: string
+      tradeDate:
+        type: string
+    type: object
+  watchlist.MoveStockRequest:
+    properties:
+      code:
+        example: 600519.SH
+        type: string
+      fromGroupId:
+        type: integer
+      market:
+        example: CN
+        type: string
+      toGroupId:
+        type: integer
+    required:
+      - code
+      - fromGroupId
+      - toGroupId
+    type: object
+  watchlist.MovedView:
+    properties:
+      moved:
+        example: true
+        type: boolean
+    type: object
+  watchlist.RemovedView:
+    properties:
+      removed:
+        example: true
+        type: boolean
+    type: object
+  watchlist.ReorderRequest:
+    properties:
+      codes:
+        example:
+          - 600519.SH
+          - 000001.SZ
+        items:
+          type: string
+        type: array
+    required:
+      - codes
+    type: object
+  watchlist.ReorderedView:
+    properties:
+      reordered:
+        example: true
+        type: boolean
+    type: object
+  watchlist.UpdateNoteRequest:
+    properties:
+      note:
+        example: 业绩拐点，盯一下
+        type: string
+    type: object
+  watchlist.UpdatedView:
+    properties:
+      updated:
+        example: true
+        type: boolean
+    type: object
+info:
+  contact: { }
+  description: |-
+    多智能体股票分析平台 HTTP 接口。
+
+    所有响应共用同一个信封 {"code":0,"message":"ok","data":{...}}，
+    code 为 0 表示成功，非 0 时 data 恒为 null，具体取值见 response 包。
+
+    健康检查 GET /healthz 不在 /api/v1 之下，因此未收录于本文档。
+
+    免责声明：本平台仅用于学习与研究，不构成投资建议。分析结论由大模型生成，
+    可能包含事实性错误。过往表现不代表未来收益，投资有风险，可能损失本金。
+  title: Trading Agents API
+  version: "1.0"
+paths:
+  /agents/crew:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/agent.CrewView'
+                type: object
+      summary: 智能体阵容
+      tags:
+        - 智能体
+  /agents/indicators/{code}:
+    get:
+      parameters:
+        - description: 标的代码
+          example: "600519"
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场：CN/HK/US，留空按代码推断
+          in: query
+          name: market
+          type: string
+        - description: K 线周期：daily/weekly/monthly，默认 daily
+          in: query
+          name: period
+          type: string
+        - description: 交易日 YYYY-MM-DD，默认取当天；当天无行情则退到最近一个已算过的交易日
+          in: query
+          name: date
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/agent.IndicatorView'
+                type: object
+        "400":
+          description: 代码、周期或交易日不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 该标的尚无已落库的指标快照
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 技术指标仓储未就绪
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 技术指标快照
+      tags:
+        - 智能体
+  /analysis/batches:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 批量分析请求，单批次股票数量有上限
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/analysis.SubmitBatchRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.SubmitBatchView'
+                type: object
+        "400":
+          description: 请求参数不合法或超出单批次上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 并发分析数已达上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "500":
+          description: 批次落库或入队失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 批量提交分析任务
+      tags:
+        - 分析任务
+  /analysis/batches/{id}:
+    get:
+      parameters:
+        - description: 批次 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.BatchView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 批次不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询分析批次
+      tags:
+        - 分析任务
+  /analysis/tasks:
+    get:
+      parameters:
+        - description: 目标用户 ID，仅管理员可传，缺省为自己
+          in: query
+          name: userId
+          type: integer
+        - description: 任务状态过滤，留空表示不限
+          enum:
+            - queued
+            - running
+            - completed
+            - failed
+            - canceled
+          in: query
+          name: status
+          type: string
+        - description: 页码，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/analysis.TaskView'
+                            type: array
+                        type: object
+                type: object
+        "400":
+          description: 状态取值非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 无权查看其他用户的分析任务
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 分析任务列表
+      tags:
+        - 分析任务
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分析请求，depth 取 1/3/5 分别对应快速、标准、深度
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/analysis.SubmitRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.TaskView'
+                type: object
+        "400":
+          description: 请求参数不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 并发分析数已达上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "500":
+          description: 任务落库或入队失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 提交分析任务
+      tags:
+        - 分析任务
+  /analysis/tasks/{id}:
+    get:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.TaskView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询分析任务
+      tags:
+        - 分析任务
+  /analysis/tasks/{id}/cancel:
+    post:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.CancelView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 任务已处于终态或被并发改写
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 取消分析任务
+      tags:
+        - 分析任务
+  /analysis/tasks/{id}/progress:
+    get:
+      description: |-
+        以 Server-Sent Events 推送任务进度，直到任务终结或客户端断开。
+        正常帧为 `event: progress`，data 是统一信封且 data 字段为 progressView；
+        出错帧为 `event: error`，信封的 data 为 null。
+        长时间没有新进度时服务端发一行 `: keep-alive` 注释保活，客户端应忽略。
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - text/event-stream
+      responses:
+        "200":
+          description: 'SSE 事件流，每条形如 data: {...}\n\n'
+          schema:
+            type: string
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "500":
+          description: 订阅进度流失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 订阅任务进度（SSE）
+      tags:
+        - 分析任务
+  /analysis/tasks/{id}/result:
+    get:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/analysis.ResultView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在或尚未产出结果
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询分析结果
+      tags:
+        - 分析任务
+  /auth/login:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 用户名与口令
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.LoginRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.TokenResponse'
+                type: object
+        "400":
+          description: 请求参数不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 用户名或口令错误
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 登录
+      tags:
+        - 认证
+  /auth/logout:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.LogoutView'
+                type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 登出
+      tags:
+        - 认证
+  /auth/me:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.MeView'
+                type: object
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 当前登录身份
+      tags:
+        - 认证
+  /auth/refresh:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 刷新令牌
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.RefreshRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.TokenResponse'
+                type: object
+        "400":
+          description: 请求参数不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 刷新令牌无效或已过期
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 刷新令牌
+      tags:
+        - 认证
+  /config/diagnostics/providers:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 逐家一条结论；全都不通也是 200，没有启用中的供应商时是空数组
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/domain_services.ProbeResult'
+                    type: array
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 未配置连通性探测器，或探测过程被中断
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 探测全部启用中供应商的连通性
+      tags:
+        - 系统配置
+  /config/providers:
+    get:
+      parameters:
+        - description: 为 true 时只返回当前真正能接活的供应商，且不分页
+          in: query
+          name: usable
+          type: boolean
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: apiKey 字段为掩码（首 3 位 + 末 4 位），未配置密钥时为空串
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/domain_services.SanitizedProvider'
+                            type: array
+                        type: object
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 列出模型供应商
+      tags:
+        - 系统配置
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 供应商配置；apiKey 为明文，响应里回的是掩码
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/system.CreateProviderRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: apiKey 字段为掩码，不回显刚提交的明文
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 名称、协议类型、接入地址、优先级或模型名不合规
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 同名供应商已存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 注册模型供应商
+      tags:
+        - 系统配置
+  /config/providers/{id}:
+    delete:
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/system.DeletedView'
+                type: object
+        "400":
+          description: 供应商 ID 必须是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除模型供应商
+      tags:
+        - 系统配置
+    get:
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: apiKey 字段为掩码（首 3 位 + 末 4 位），未配置密钥时为空串
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 供应商 ID 必须是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询模型供应商
+      tags:
+        - 系统配置
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 只传要改的字段；字段缺省表示不动，不表示清空。密钥不在这里改，走 /key
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/system.UpdateProviderRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: apiKey 字段为掩码
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 供应商 ID 非法，或接入地址、模型列表、优先级不合规
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 更新模型供应商
+      tags:
+        - 系统配置
+  /config/providers/{id}/disable:
+    post:
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 供应商 ID 必须是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 供应商已处于停用状态
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 停用模型供应商
+      tags:
+        - 系统配置
+  /config/providers/{id}/enable:
+    post:
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: usable 字段表示这家现在是否真的能接活（启用 + 有密钥 + 有模型）
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 供应商 ID 必须是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 供应商已处于启用状态
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 启用模型供应商
+      tags:
+        - 系统配置
+  /config/providers/{id}/key:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 新密钥明文；不接受掩码形态（如 sk-…abcd），那通常是把查询结果原样回传导致的误覆盖
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/system.RotateKeyRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: apiKey 字段是新密钥的掩码，接口不回显明文
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedProvider'
+                type: object
+        "400":
+          description: 供应商 ID 非法，或 apiKey 为空、为掩码形态
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 轮换供应商密钥
+      tags:
+        - 系统配置
+  /config/providers/{id}/test:
+    post:
+      parameters:
+        - description: 供应商 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 探测失败同样是 200，看 data.ok；message 只含领域消息，不含厂商原始报文
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.ProbeResult'
+                type: object
+        "400":
+          description: 供应商 ID 必须是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 供应商不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 未配置连通性探测器
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 探测单家供应商连通性
+      tags:
+        - 系统配置
+  /config/reload:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 要重载的配置域与原因
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/system.ReloadRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 只表示重载事件已广播
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/system.ReloadRequestedView'
+                type: object
+        "400":
+          description: 配置域取值非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 请求重载配置
+      tags:
+        - 系统配置
+  /config/settings:
+    get:
+      parameters:
+        - description: 配置域
+          enum:
+            - llm
+            - market
+            - sync
+            - feature
+          in: query
+          name: scope
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: secret=true 的项，value 已按密钥规则打码
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/domain_services.SanitizedSetting'
+                    type: array
+                type: object
+        "400":
+          description: 未指定配置域，或配置域取值非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 按域列出配置项
+      tags:
+        - 系统配置
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 配置键与值；键不存在则新建，存在则改值
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/system.UpsertSettingRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 密钥类配置项回的是打码后的 value
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedSetting'
+                type: object
+        "400":
+          description: 配置键格式非法，或配置说明超长
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 写入配置项
+      tags:
+        - 系统配置
+  /config/settings/{key}:
+    delete:
+      parameters:
+        - description: 配置键
+          example: llm.default_model
+          in: path
+          name: key
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/system.DeletedView'
+                type: object
+        "400":
+          description: 配置键格式非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 配置项不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除配置项
+      tags:
+        - 系统配置
+    get:
+      parameters:
+        - description: 配置键，2-4 段点分格式，首段是配置域
+          example: llm.default_model
+          in: path
+          name: key
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 密钥类配置项（键以 _key/_token/_secret/_password/_credential 结尾）的 value
+            已打码
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.SanitizedSetting'
+                type: object
+        "400":
+          description: 配置键格式非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 配置项不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询单项配置
+      tags:
+        - 系统配置
+  /config/snapshot:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 供应商密钥与密钥类配置项均为掩码；providers 只含启用中的供应商
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/domain_services.ConfigSnapshot'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询全局配置快照
+      tags:
+        - 系统配置
+  /market-sync/latest:
+    get:
+      parameters:
+        - description: 同步类型 stock_list/quotes/klines/financials/news
+          in: query
+          name: kind
+          required: true
+          type: string
+        - description: 市场（CN/HK/US）
+          in: query
+          name: market
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/stock.SyncRunView'
+                type: object
+        "400":
+          description: 同步类型或市场缺失、非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 尚无该类型该市场的同步记录
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询最近一次同步
+      tags:
+        - 数据同步
+  /market-sync/runs:
+    get:
+      parameters:
+        - description: 同步类型 stock_list/quotes/klines/financials/news，留空表示不限
+          in: query
+          name: kind
+          type: string
+        - description: 市场（CN/HK/US），留空表示不限
+          in: query
+          name: market
+          type: string
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20，上限 200
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/stock.SyncRunView'
+                            type: array
+                        type: object
+                type: object
+        "400":
+          description: 同步类型或市场非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询同步历史
+      tags:
+        - 数据同步
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 同步类型与市场
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/stock.TriggerSyncRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/stock.SyncRunView'
+                type: object
+        "400":
+          description: 请求体不合法，或同步类型、市场未知
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 该市场没有可同步的标的，请先同步股票列表
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 同类型同市场已有同步任务在运行
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 没有数据源支持该市场，或所有数据源取数失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 手动触发同步
+      tags:
+        - 数据同步
+  /market-sync/runs/{id}:
+    get:
+      parameters:
+        - description: 同步记录 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/stock.SyncRunView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 同步记录不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询单次同步记录
+      tags:
+        - 数据同步
+  /notifications:
+    get:
+      parameters:
+        - description: 已读状态筛选，留空表示不限
+          enum:
+            - unread
+            - read
+          in: query
+          name: status
+          type: string
+        - default: 1
+          description: 页码，从 1 开始
+          in: query
+          name: page
+          type: integer
+        - default: 20
+          description: 每页条数
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/notification.NotificationView'
+                            type: array
+                        type: object
+                type: object
+        "400":
+          description: 已读状态筛选值非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 我的通知列表
+      tags:
+        - 通知
+  /notifications/{id}:
+    delete:
+      parameters:
+        - description: 通知 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/notification.DeleteView'
+                type: object
+        "400":
+          description: 非法的通知 ID
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 通知不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除通知
+      tags:
+        - 通知
+  /notifications/{id}/read:
+    post:
+      parameters:
+        - description: 通知 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/notification.MarkReadView'
+                type: object
+        "400":
+          description: 非法的通知 ID
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 通知不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 通知已是已读状态
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 标记已读
+      tags:
+        - 通知
+  /notifications/read-all:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/notification.MarkAllReadView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 一键已读
+      tags:
+        - 通知
+  /notifications/unread-count:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/notification.UnreadCountView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 未读条数
+      tags:
+        - 通知
+  /paper/accounts:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.AccountListResult'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 模拟账户列表
+      tags:
+        - 模拟交易
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 开户参数
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/paper.OpenAccountRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.OpenAccountResult'
+                type: object
+        "400":
+          description: 请求参数不合法，或初始资金不是大于 0 的金额
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 已达单用户模拟账户数上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 开立模拟账户
+      tags:
+        - 模拟交易
+  /paper/accounts/{id}/orders:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 模拟账户 ID
+          in: path
+          name: id
+          required: true
+          type: string
+        - description: 委托内容
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/paper.PlaceOrderRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.PlaceOrderResult'
+                type: object
+        "400":
+          description: 请求参数不合法：代码、方向、数量、价格或手续费非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 账户不存在，或不属于调用者
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 可用资金不足、可卖数量不足、持仓标的数超限，或账户被并发修改
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 未指定委托价格且取不到最新行情
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 下单
+      tags:
+        - 模拟交易
+  /paper/accounts/{id}/portfolio:
+    get:
+      parameters:
+        - description: 模拟账户 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.PortfolioResult'
+                type: object
+        "400":
+          description: 账户 ID 为空
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 账户不存在，或不属于调用者
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 组合估值
+      tags:
+        - 模拟交易
+  /paper/accounts/{id}/reset:
+    post:
+      parameters:
+        - description: 模拟账户 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.ResetAccountResult'
+                type: object
+        "400":
+          description: 账户 ID 为空
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 账户不存在，或不属于调用者
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 账户被并发修改，重试后仍然冲突
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 重置模拟账户
+      tags:
+        - 模拟交易
+  /paper/accounts/{id}/trades:
+    get:
+      parameters:
+        - description: 模拟账户 ID
+          in: path
+          name: id
+          required: true
+          type: string
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20，上限 200
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/paper.TradeHistoryResult'
+                type: object
+        "400":
+          description: 账户 ID 为空
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 账户不存在，或不属于调用者
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 成交历史
+      tags:
+        - 模拟交易
+  /reports:
+    get:
+      parameters:
+        - description: 只有管理员传得动：查看指定用户的报告，留空即查自己
+          in: query
+          name: userId
+          type: integer
+        - description: 页码，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/report.ReportSummaryView'
+                            type: array
+                        type: object
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 无权查看其他用户的分析报告
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 我的报告列表
+      tags:
+        - 分析报告
+  /reports/{id}:
+    delete:
+      parameters:
+        - description: 报告 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/report.DeleteView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 报告不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除报告
+      tags:
+        - 分析报告
+    get:
+      parameters:
+        - description: 报告 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/report.ReportView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 报告不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 报告详情
+      tags:
+        - 分析报告
+  /reports/{id}/sections/{key}:
+    get:
+      parameters:
+        - description: 报告 ID
+          in: path
+          name: id
+          required: true
+          type: string
+        - description: 章节标识
+          example: conclusion
+          in: path
+          name: key
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/report.SectionView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 报告不存在、不属于当前用户，或该章节不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 报告章节
+      tags:
+        - 分析报告
+  /scheduling/jobs:
+    get:
+      parameters:
+        - description: 任务种类，留空表示不限
+          enum:
+            - market_sync
+            - scheduled_analysis
+            - data_cleanup
+          in: query
+          name: kind
+          type: string
+        - description: 任务状态，留空表示不限
+          enum:
+            - enabled
+            - paused
+            - disabled
+          in: query
+          name: status
+          type: string
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/scheduling.JobView'
+                            type: array
+                        type: object
+                type: object
+        "400":
+          description: 任务种类或状态取值非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询定时任务列表
+      tags:
+        - 定时任务
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 任务定义
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/scheduling.CreateJobRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.JobView'
+                type: object
+        "400":
+          description: 参数不合法，含非法的 cron 表达式、任务种类或超时上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 同名任务已存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 创建定时任务
+      tags:
+        - 定时任务
+  /scheduling/jobs/{id}:
+    delete:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.DeleteJobView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除定时任务
+      tags:
+        - 定时任务
+    get:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.JobView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询单条定时任务
+      tags:
+        - 定时任务
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+        - description: 要修改的字段，留空的字段保持不变
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/scheduling.UpdateJobRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.JobView'
+                type: object
+        "400":
+          description: 参数不合法，含非法的 cron 表达式或超出上限的超时
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 任务已停用，不允许修改调度或配置
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 修改定时任务
+      tags:
+        - 定时任务
+  /scheduling/jobs/{id}/executions:
+    get:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/scheduling.ExecutionView'
+                            type: array
+                        type: object
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询任务执行历史
+      tags:
+        - 定时任务
+  /scheduling/jobs/{id}/pause:
+    post:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.PauseJobView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 任务已处于暂停或停用状态
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 暂停定时任务
+      tags:
+        - 定时任务
+  /scheduling/jobs/{id}/resume:
+    post:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.ResumeJobView'
+                type: object
+        "400":
+          description: 任务的 cron 表达式已不可用，无法恢复调度
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 任务已处于启用状态，或已停用需先重新启用
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 恢复定时任务
+      tags:
+        - 定时任务
+  /scheduling/jobs/{id}/trigger:
+    post:
+      parameters:
+        - description: 任务 ID
+          in: path
+          name: id
+          required: true
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: 已排队的执行记录，status 为 queued
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.ExecutionView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 定时任务管理仅限管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 任务不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 任务已停用，不可手动触发
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 执行记录已写下，但到期消息投递失败，等待恢复巡检补投
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 立即触发一次执行
+      tags:
+        - 定时任务
+  /scheduling/jobs/preview-cron:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 待推演的 cron 表达式与条数
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/scheduling.PreviewCronRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/scheduling.CronPreviewView'
+                type: object
+        "400":
+          description: 表达式为空、语法非法，或在未来不会再触发
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 预览 cron 表达式的触发时刻
+      tags:
+        - 定时任务
+  /screening/fields:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.FieldDictView'
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询可筛选字段字典
+      tags:
+        - 选股
+  /screening/run:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 筛选条件、排序与条数
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/screening.RunRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.ResultSetView'
+                type: object
+        "400":
+          description: 条件为空、超过 20 条、重复，或字段/比较符/排序不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 行情或财务存储未配置，无法执行筛选
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 执行临时筛选
+      tags:
+        - 选股
+  /screening/templates:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/screening.TemplateView'
+                    type: array
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 列出我的选股模板
+      tags:
+        - 选股
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 模板名、筛选条件、排序与条数
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/screening.TemplateRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.TemplateView'
+                type: object
+        "400":
+          description: 模板名为空、条件为空，或字段/比较符/排序不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 已存在同名模板，或提交中含重复的筛选条件
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 筛选条件超过 20 条上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 新建选股模板
+      tags:
+        - 选股
+  /screening/templates/{id}:
+    delete:
+      parameters:
+        - description: 模板 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.DeleteResultView'
+                type: object
+        "400":
+          description: 模板 ID 非正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 模板不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除选股模板
+      tags:
+        - 选股
+    get:
+      parameters:
+        - description: 模板 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.TemplateView'
+                type: object
+        "400":
+          description: 模板 ID 非正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 模板不存在，或既非本人所有也未公开
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询选股模板详情
+      tags:
+        - 选股
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 模板 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 待更新的字段，留空表示不改
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/screening.TemplateRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.TemplateView'
+                type: object
+        "400":
+          description: 模板 ID 非正整数，或字段/比较符/排序不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 模板不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 重名、条件重复，或模板已被并发修改
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 筛选条件超过 20 条上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 更新选股模板
+      tags:
+        - 选股
+  /screening/templates/{id}/run:
+    post:
+      parameters:
+        - description: 模板 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/screening.ResultSetView'
+                type: object
+        "400":
+          description: 模板 ID 非正整数，或模板内含无法识别的字段
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 模板不存在，或既非本人所有也未公开
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 行情或财务存储未配置，无法执行筛选
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 执行已保存的选股模板
+      tags:
+        - 选股
+  /screening/templates/public:
+    get:
+      parameters:
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认与上限由分页值对象收敛
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/screening.TemplateView'
+                            type: array
+                        type: object
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 列出公开选股模板
+      tags:
+        - 选股
+  /stocks:
+    get:
+      parameters:
+        - description: 关键词，匹配代码前缀、名称或行业
+          in: query
+          name: keyword
+          type: string
+        - description: 市场（CN/HK/US），留空表示不限
+          in: query
+          name: market
+          type: string
+        - description: 页码，从 1 开始，默认 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，默认 20，上限 200
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/stock.StockView'
+                            type: array
+                        type: object
+                type: object
+      summary: 搜索标的
+      tags:
+        - 股票行情
+  /stocks/{code}:
+    get:
+      parameters:
+        - description: 标的代码，如 600519.SH
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/stock.StockView'
+                type: object
+        "400":
+          description: 标的代码为空或格式非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 标的不存在，且补数后仍未命中
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 查询标的主数据
+      tags:
+        - 股票行情
+  /stocks/{code}/financials:
+    get:
+      parameters:
+        - description: 标的代码，如 600519.SH
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+        - description: 返回期数，默认 8
+          in: query
+          name: limit
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/stock.FinancialView'
+                    type: array
+                type: object
+        "400":
+          description: 标的代码为空或格式非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 本地无数据且所有数据源取数失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 查询财务数据序列
+      tags:
+        - 股票行情
+  /stocks/{code}/klines:
+    get:
+      parameters:
+        - description: 标的代码，如 600519.SH
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+        - description: 周期 daily/weekly/monthly，留空按日线
+          in: query
+          name: period
+          type: string
+        - description: 起始交易日 YYYY-MM-DD，与 end 都留空时取近半年
+          in: query
+          name: start
+          type: string
+        - description: 结束交易日 YYYY-MM-DD
+          in: query
+          name: end
+          type: string
+        - description: 最多返回条数，留空不限，上限由仓储收敛
+          in: query
+          name: limit
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/stock.KlineView'
+                    type: array
+                type: object
+        "400":
+          description: 代码、周期或日期区间非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 本地无数据且所有数据源取数失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 查询 K 线序列
+      tags:
+        - 股票行情
+  /stocks/{code}/news:
+    get:
+      parameters:
+        - description: 标的代码，如 600519.SH
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+        - description: 起始日期 YYYY-MM-DD，与 end 都留空时取近半年
+          in: query
+          name: start
+          type: string
+        - description: 结束日期 YYYY-MM-DD
+          in: query
+          name: end
+          type: string
+        - description: 最多返回条数，默认 20
+          in: query
+          name: limit
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/stock.NewsView'
+                    type: array
+                type: object
+        "400":
+          description: 标的代码或日期区间非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 本地无数据且所有数据源取数失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 查询标的资讯
+      tags:
+        - 股票行情
+  /stocks/{code}/quote:
+    get:
+      parameters:
+        - description: 标的代码，如 600519.SH
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/stock.QuoteView'
+                type: object
+        "400":
+          description: 标的代码为空或格式非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "503":
+          description: 本地无快照且所有数据源取数失败
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 查询最新行情快照
+      tags:
+        - 股票行情
+  /users:
+    get:
+      parameters:
+        - description: 用户名关键字，模糊匹配
+          in: query
+          name: keyword
+          type: string
+        - description: 页码，缺省 1
+          in: query
+          name: page
+          type: integer
+        - description: 每页条数，缺省 20
+          in: query
+          name: pageSize
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    allOf:
+                      - $ref: '#/definitions/response.PageData'
+                      - properties:
+                          items:
+                            items:
+                              $ref: '#/definitions/identity.UserView'
+                            type: array
+                        type: object
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 用户列表
+      tags:
+        - 用户
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 用户名、口令与角色
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.CreateUserRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.UserView'
+                type: object
+        "400":
+          description: 请求参数不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 用户名已被占用
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 新建用户
+      tags:
+        - 用户
+  /users/{id}:
+    get:
+      parameters:
+        - description: 用户 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.UserView'
+                type: object
+        "400":
+          description: 用户 ID 不是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 只能查看自己，除非是管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 用户不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 查询用户
+      tags:
+        - 用户
+  /users/{id}/deactivate:
+    post:
+      parameters:
+        - description: 用户 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.DeactivateView'
+                type: object
+        "400":
+          description: 用户 ID 不是正整数
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限，且不能停用自己
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 用户不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 账号已停用，或系统必须保留至少一个启用的管理员
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 停用用户
+      tags:
+        - 用户
+  /users/{id}/password/reset:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 用户 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 新口令
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.ResetPasswordRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.ResetPasswordView'
+                type: object
+        "400":
+          description: 用户 ID 不是正整数，或新口令强度不足
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "403":
+          description: 需要管理员权限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 用户不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 重置密码
+      tags:
+        - 用户
+  /users/password:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 原口令与新口令
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.ChangePasswordRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.ChangePasswordView'
+                type: object
+        "400":
+          description: 请求参数不合法或新口令强度不足
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录、令牌无效或原密码不正确
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 用户不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 修改密码
+      tags:
+        - 用户
+  /users/profile:
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 待更新的邮箱与偏好
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/identity.UpdateProfileRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/identity.UserView'
+                type: object
+        "400":
+          description: 请求参数不合法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 用户不存在
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 更新个人资料
+      tags:
+        - 用户
+  /watchlist/groups:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    items:
+                      $ref: '#/definitions/watchlist.GroupView'
+                    type: array
+                type: object
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 分组列表
+      tags:
+        - 自选股
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分组名
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.GroupNameRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.GroupView'
+                type: object
+        "400":
+          description: 分组名为空、超过 16 个字符或含控制字符
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 已存在同名分组
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 新建分组
+      tags:
+        - 自选股
+  /watchlist/groups/{id}:
+    delete:
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.DeletedView'
+                type: object
+        "400":
+          description: 分组 ID 非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 删除分组
+      tags:
+        - 自选股
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 新分组名
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.GroupNameRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.GroupView'
+                type: object
+        "400":
+          description: 分组 ID 非法，或分组名为空、超长、含控制字符
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 已存在同名分组，或分组已被并发修改
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 重命名分组
+      tags:
+        - 自选股
+  /watchlist/groups/{id}/items:
+    get:
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.GroupDetailView'
+                type: object
+        "400":
+          description: 分组 ID 非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 分组明细
+      tags:
+        - 自选股
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 标的与备注
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.AddStockRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.ItemView'
+                type: object
+        "400":
+          description: 分组 ID 或标的代码非法，或备注超过 100 个字符
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 该标的已在分组内
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 分组已达 200 只上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 添加自选股
+      tags:
+        - 自选股
+  /watchlist/groups/{id}/items/{code}:
+    delete:
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 标的代码，形如 600519.SH；点号无需转义，直接放进路径即可
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.RemovedView'
+                type: object
+        "400":
+          description: 分组 ID 或标的代码非法
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在、不属于当前用户，或该标的不在分组内
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 分组已被并发修改，请重新加载后重试
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 移除自选股
+      tags:
+        - 自选股
+  /watchlist/groups/{id}/items/{code}/note:
+    put:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 标的代码，形如 600519.SH；点号无需转义，直接放进路径即可
+          in: path
+          name: code
+          required: true
+          type: string
+        - description: 市场（CN/HK/US），留空时由代码自动推断
+          in: query
+          name: market
+          type: string
+        - description: 备注，传空串表示清空
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.UpdateNoteRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.UpdatedView'
+                type: object
+        "400":
+          description: 分组 ID 或标的代码非法，或备注超过 100 个字符
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在、不属于当前用户，或该标的不在分组内
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 分组已被并发修改，请重新加载后重试
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 修改自选股备注
+      tags:
+        - 自选股
+  /watchlist/groups/{id}/items/reorder:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 分组 ID
+          in: path
+          name: id
+          required: true
+          type: integer
+        - description: 期望排在最前面的标的代码，按新顺序给出
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.ReorderRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.ReorderedView'
+                type: object
+        "400":
+          description: 分组 ID 非法，或排序列表为空、含非法代码、含重复代码、含组内不存在的标的
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 分组不存在或不属于当前用户
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 分组已被并发修改，请重新加载后重试
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 重排自选股顺序
+      tags:
+        - 自选股
+  /watchlist/items/move:
+    post:
+      consumes:
+        - application/json
+      parameters:
+        - description: 源分组、目标分组与标的
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/watchlist.MoveStockRequest'
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+              - $ref: '#/definitions/response.Envelope'
+              - properties:
+                  data:
+                    $ref: '#/definitions/watchlist.MovedView'
+                type: object
+        "400":
+          description: 标的代码非法，或源分组与目标分组相同
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "401":
+          description: 未登录或令牌无效
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "404":
+          description: 源或目标分组不存在、不属于当前用户，或该标的不在源分组内
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "409":
+          description: 目标分组中已存在该标的
+          schema:
+            $ref: '#/definitions/response.Envelope'
+        "429":
+          description: 目标分组已达 200 只上限
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      security:
+        - BearerAuth: [ ]
+      summary: 跨分组移动自选股
+      tags:
+        - 自选股
+securityDefinitions:
+  BearerAuth:
+    description: 填入 "Bearer {accessToken}"，令牌由 POST /auth/login 获取。
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
+tags:
+  - description: 登录、刷新令牌、查询当前身份。除标的行情外的接口都要先拿到这里的令牌。
+    name: 认证
+  - description: 用户管理。列表与创建、停用需要管理员权限，改自己的资料与口令不需要。
+    name: 用户
+  - description: 标的主数据、行情、K 线、财务与新闻。唯一一组免登录的接口。
+    name: 股票行情
+  - description: 自选分组与分组内标的的增删改排序。
+    name: 自选股
+  - description: 条件选股与选股模板。先取 /screening/fields 拿字段字典，再据此构造条件。
+    name: 选股
+  - description: 智能体阵容与技术指标快照。
+    name: 智能体
+  - description: 提交与追踪多智能体分析。任务异步执行，进度经 SSE 推送。
+    name: 分析任务
+  - description: 分析任务产出的结构化报告。
+    name: 分析报告
+  - description: 模拟账户、下单与持仓。全部为模拟撮合，不涉及任何真实资金或真实委托。
+    name: 模拟交易
+  - description: 站内通知的查询与已读状态。
+    name: 通知
+  - description: 定时任务的增删改与手动触发。cron 为五段式（分 时 日 月 周）。
+    name: 定时任务
+  - description: 行情与主数据的同步作业触发与历史。
+    name: 数据同步
+  - description: 模型供应商与系统设置。全部需要管理员权限；返回的 API Key 一律是掩码。
+    name: 系统配置

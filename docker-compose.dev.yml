@@ -1,0 +1,42 @@
+# 热加载覆盖层。总是和基础那份叠着用，不能单独 -f 起：
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   （等价于 make dev-up）
+#
+# 依赖容器（mysql/mongo/redis/rabbitmq）这里一个字都不提，原样沿用基础配置——
+# 开发期要换的只有应用怎么跑，不是它连什么。
+
+services:
+  api:
+    build:
+      context: .
+      # builder 与运行阶段之间的那个 Go 工具链镜像，见 Dockerfile。
+      target: dev
+    # 换一个 tag。沿用 trading-agents:local 的话，一次 make dev-up 就会把
+    # make up 构建出来的生产镜像顶掉，而两者看起来是同一个名字。
+    image: trading-agents:dev
+    command: [ "air", "-c", ".air.api.toml" ]
+    volumes:
+      # 源码挂进去，改完宿主机上的文件容器里的 air 立刻能看到。
+      - .:/src
+      # tmp 用匿名卷盖掉，不让它落到上面那个挂载里。
+      #
+      # 不盖的话，容器里编译出的 linux 二进制和宿主机 make dev 编译出的 darwin
+      # 二进制会写进同一个 tmp/api——两边同时开着的时候互相覆盖，
+      # 症状是其中一个进程起来就报 exec format error。
+      - /src/tmp
+      # 模块与编译缓存做成具名卷。不留的话每次重建容器都要从头下一遍依赖、
+      # 编译一遍标准库，热加载的第一次重启要等好几分钟。
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      # 确保是非生产档：Swagger UI 只在这个条件下挂载（见 internal/server/server.go）。
+      # 开发环境起来却打不开 /swagger，九成是这里被 .env 里的值盖成了 prod。
+      TA_APP_ENV: dev
+    # 开发期不要自动重启。编译错误 air 自己会兜住并保留旧进程；
+    # 真崩到容器退出，那是需要被看见的信息，不该被 Docker 悄悄拉起来盖掉。
+    restart: "no"
+
+volumes:
+  go-mod-cache:
+  go-build-cache:

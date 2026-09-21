@@ -1,0 +1,146 @@
+# 一套可以直接 `docker compose up` 起来的完整环境。
+#
+# ===========================================================================
+# 只有一个应用容器
+# ===========================================================================
+#
+# api 这一个进程承担全部职责：HTTP 接口、队列消费、兜底巡检、调度循环。
+#
+# 曾经拆成 api + worker 两个容器，理由是「分析耗时以分钟计，不该跑在 API 进程里」。
+# 那条理由在 Go 里不成立——没有请求线程池，一个阻塞在 LLM 调用上的 goroutine
+# 只占几 KB 栈。并发上限也不靠拆进程来保护，它在 Redis 的并发闸门里。
+#
+# 合并之后少掉的不只是一个容器，还有一条必须记住的规矩：原先 api 绝不能消费队列，
+# 否则同一条领域事件会随机落到两个进程之一，而它们注册的处理器并不相同——
+# 故障表现是「有时候好使」，没有任何错误日志。
+#
+# 真要按请求量横向扩容，加副本时带 --no-consumers 即可。
+#
+# ===========================================================================
+# 为什么没有单独的迁移容器
+# ===========================================================================
+#
+# 因为表结构迁移随服务启动自动执行，多副本并发由数据库具名锁串行化
+# （见 internal/db/migrate.go 的 MigrateOnBoot）。
+# 额外加一个 init 容器只会多一个需要维护的启动顺序约束，而它挡不住任何东西。
+
+# 应用配置整块来自 .env（env_file），不在这里逐条列。
+#
+# 逐条列会制造第二份配置清单：.env.example 一份、compose 一份，
+# 加一个配置项要改两处，忘了改第二处的表现是「配了但不生效」。
+# env_file 让 .env 成为唯一来源。
+#
+# 唯一在这里显式给的是 TA_MYSQL_PASSWORD / TA_AMQP_* 凭据与主机名：
+# 它们必须和依赖容器的设置严格一致，写在一起才看得出这层对应关系。
+x-app-env: &app-env
+  TA_MYSQL_HOST: mysql
+  TA_MYSQL_PASSWORD: ${MYSQL_PASSWORD:-trading_agents}
+  TA_MONGO_URI: mongodb://mongo:27017
+  TA_REDIS_ADDR: redis:6379
+  TA_AMQP_HOST: rabbitmq
+  TA_AMQP_USER: ${RABBITMQ_USER:-guest}
+  TA_AMQP_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+
+services:
+  api:
+    build: .
+    image: trading-agents:local
+    command: [ "serve" ]
+    # env_file 先加载，environment 后覆盖——后者只放必须与依赖容器对齐的那几项。
+    env_file: [ .env ]
+    environment: *app-env
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      # 全部用 service_healthy 而不是 service_started：
+      # 容器起来了不等于服务就绪，MySQL 尤其——它的进程先于端口存在，
+      # 而应用连上去只会拿到一句 connection refused 然后退出。
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    command:
+      # 字符集必须显式指定：MySQL 8 默认 utf8mb4 没错，但排序规则默认是
+      # utf8mb4_0900_ai_ci，而迁移脚本里写的是 utf8mb4_unicode_ci。
+      # 两者不一致会让带中文的唯一索引在不同环境下表现不同。
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-trading_agents}
+      MYSQL_DATABASE: trading_agents
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "33061:3306"
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_PASSWORD:-trading_agents}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    healthcheck:
+      test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    # appendonly 让并发闸门与进度快照在重启后还在。它们不是缓存：
+    # 丢掉并发凭据，名额就再也收不回来；丢掉进度快照，跑着的任务进度条会变空。
+    # （任务队列本身已经不在 Redis 里了，它在 RabbitMQ。）
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      # consumer_timeout 是「一条消息可以未 ack 多久」。必须显式写出来，不能吃默认值：
+      # 一次分析动辄跑几分钟，而这个上限是随 RabbitMQ 版本变过的（3.8.15 才引入，
+      # 更早的版本根本没有上限）。依赖默认值意味着某次升基础镜像就会让长任务
+      # 开始莫名其妙被重投，而现场看到的只是「任务偶尔重跑」。
+      #
+      # 1800000ms = 30 分钟，必须与 Go 侧的 constants.AnalysisMaxRuntime 一致：
+      # 两边量化的是同一件事，改一个就要改另一个。
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 1800000"
+    ports:
+      # 管理界面：排查「消息到底有没有进死信队列」时唯一好用的东西。
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mysql-data:
+  mongo-data:
+  redis-data:
+  rabbitmq-data:

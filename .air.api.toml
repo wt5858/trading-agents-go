@@ -1,0 +1,51 @@
+# air 的 api 进程配置：改一行 .go 就重新编译并重启 `trading-agents serve`。
+#
+# worker 有一份几乎一样的 .air.worker.toml。两份分开而不是共用一份加命令行覆盖，
+# 是因为两个进程要同时跑：共用配置就会共用 tmp 里的同一个二进制名，
+# 后编译完的那个会覆盖掉前一个正在运行的文件。
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/api ."
+  bin = "./tmp/api"
+  args_bin = ["serve"]
+
+  # sql 必须跟 go 一起监听：迁移脚本是 go:embed 进二进制的，
+  # 改完 .sql 不重新编译，跑的还是上一版表结构。
+  include_ext = ["go", "sql"]
+
+  # tmp 必须排除，否则写进去的二进制会触发下一轮重建，无限循环。
+  # docs 刻意**不**排除：docs.go 被 server 包空导入、编译进二进制，
+  # 跑完 make swagger 之后就该重启，否则 /swagger 上还是旧的那份。
+  exclude_dir = ["tmp", "dist", "out", ".git", ".idea", "logs"]
+  exclude_regex = ["_test\\.go"]
+
+  # 只有内容真的变了才重建。编辑器保存时的 touch、gofmt 的原样写回，
+  # 都会改 mtime 而不改内容，没有这一项会凭空多出一轮编译。
+  exclude_unchanged = true
+
+  # 连续保存（比如全局替换）会在极短时间内触发多次事件，300ms 合并成一次。
+  delay = 300
+
+  # 编译失败时保留上一个还能跑的进程，而不是留下一个空端口。
+  stop_on_error = true
+
+  # 关键：先发中断信号，而不是直接 SIGKILL。
+  #
+  # 本服务的退出路径是有内容的——HTTP 要等在途请求跑完，worker 要把 RabbitMQ
+  # 的消费者摘掉、把数据库连接关干净（见 cmd/root.go 的 runWithInfra）。
+  # 被 SIGKILL 掉的话，这段代码在开发期永远不会被执行到,
+  # 于是「优雅停机有没有写对」这个问题只能等上线才发现；
+  # 同时 RabbitMQ 那边会留下一串要等心跳超时才回收的僵尸消费者。
+  send_interrupt = true
+  kill_delay = "5s"
+
+[log]
+  # 带上时间戳。两个 air 实例的输出会交错在同一个终端里，
+  # 没有时间戳就分不清「这次重启是 api 的还是 worker 的」。
+  time = true
+
+[misc]
+  clean_on_exit = true

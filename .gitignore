@@ -1,0 +1,18 @@
+# air 的编译产物。热加载每次重建都往这里写一个二进制。
+tmp/
+
+# 本地构建产物
+/trading-agents
+/out
+/dist
+*.exe
+
+# 凭据。.env.example 是模板，要提交；.env 是真值，绝不能进版本库。
+.env
+*.env
+!.env.example
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store

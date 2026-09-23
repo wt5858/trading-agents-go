@@ -1,0 +1,64 @@
+/* Markdown 正文里那些没被 components 覆写的元素。
+   列表和表格用 CSS 比用 React 组件省事得多——它们的层级结构由 Markdown 决定，
+   套组件反而要处理嵌套。 */
+
+.ta-markdown {
+  /* 段落之间已经由 Typography.Paragraph 给了间距，这里只管容器本身。 */
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.ta-markdown ul,
+.ta-markdown ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.ta-markdown li {
+  margin-bottom: 4px;
+}
+
+/* 列表项里的段落不要再吃一份下边距，否则列表会被撑得很散。 */
+.ta-markdown li > p {
+  margin-bottom: 0 !important;
+}
+
+.ta-markdown blockquote {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.02);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.ta-markdown hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 表格可能比容器宽（财务数据列多），让它自己横向滚动，
+   而不是把整个页面撑出横向滚动条。 */
+.ta-markdown-table {
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.ta-markdown-table table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: max-content;
+}
+
+.ta-markdown-table th,
+.ta-markdown-table td {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 6px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ta-markdown-table th {
+  background: rgba(0, 0, 0, 0.02);
+  font-weight: 600;
+}

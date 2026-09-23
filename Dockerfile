@@ -1,6 +1,29 @@
 # syntax=docker/dockerfile:1
 
 # ===========================================================================
+# 前端构建阶段
+# ===========================================================================
+#
+# 必须排在 Go 构建阶段前面：那边的 go:embed 要把 web/dist 收进二进制，
+# 没有产物就直接编译失败。
+FROM node:22-alpine AS web-builder
+
+WORKDIR /web
+
+# 同 Go 那边的道理：先只拷依赖清单。package.json / package-lock.json 没变时
+# 这一层命中缓存，改一行前端代码不必重装几百个包（那是分钟级的差别）。
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+# 类型生成的产物不进版本库，但它是 tsc 的输入——拷 swagger.json 进来现生成一份。
+# 不这么做的话，构建到 tsc 那一步会因为找不到 src/types/api.generated.ts 而失败。
+COPY docs/swagger.json /docs/swagger.json
+COPY web/ ./
+RUN npx swagger2openapi /docs/swagger.json --outfile .openapi3.json \
+    && npx openapi-typescript .openapi3.json -o src/types/api.generated.ts \
+    && npm run build
+
+# ===========================================================================
 # 构建阶段
 # ===========================================================================
 FROM golang:1.25-alpine AS builder
@@ -13,6 +36,14 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
+
+# 前端产物覆盖到 web/dist。
+#
+# 顺序不能反：上面的 COPY . . 会把宿主机 web/ 目录原样带进来，其中的 dist
+# 要么只有一个占位文件（仓库里提交的那个），要么是开发机上某次本地构建的残留。
+# 两种情况都不该进镜像——前者让页面全是 404，后者更坏，是一份和当前源码
+# 对不上的旧前端，而且没有任何症状提示你它是旧的。
+COPY --from=web-builder /web/dist ./web/dist
 
 # CGO_ENABLED=0 产出静态二进制，才能放进一个没有 libc 的运行镜像。
 # -trimpath 去掉构建机的绝对路径，让同样的源码在不同机器上产出一致的二进制。

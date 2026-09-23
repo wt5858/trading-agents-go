@@ -512,7 +512,47 @@ go run . migrate up-to 20260916000010
 - 配置中心的任何响应都不返回明文密钥，只返回掩码（`sk-…wxyz`）。
 - 访问不属于自己的资源一律返回 404 而不是 403。403 会确认这个 ID 存在，
   等于把 ID 空间变成一个可枚举的探测通道。文档里因此看不到 403，这是有意的。
-- `GET /analysis/tasks/:id/progress` 是 SSE，不是 JSON，响应不走统一信封。
+- `GET /analysis/tasks/:id/progress` 是 SSE，不是 JSON。但**每一帧的负载仍然是统一信封**——
+  正常帧 `event: progress`，data 为 `{"code":0,...,"data":{progressView}}`；出错帧
+  `event: error`，信封 data 为 null。调用方要剥一层才拿得到进度。
+  空闲时服务端发 `: keep-alive` 注释行保活，客户端应忽略。
+
+## 前端
+
+`web/` 是一个独立的 npm 工程（React + TypeScript + Vite + Ant Design），
+对接的就是上面那套 `/api/v1`。详见 [web/README.md](web/README.md)。
+
+```bash
+make web-install   # 装依赖（npm ci）
+make web-types     # 从 docs/swagger.json 生成 TS 类型
+make web-dev       # Vite :5173，/api 反代到 :8080；后端另开一个 make dev
+make web-build     # 产出 web/dist
+```
+
+**生产形态是单容器。** `npm run build` 的产物由 Go 二进制通过 `go:embed` 托管
+（`web/embed.go`），没有第二个容器，也没有跨域——前端和接口同源。
+Dockerfile 里的 `web-builder` 阶段会自己跑一遍前端构建，本地不必先 `make web-build`。
+
+页面覆盖十个上下文：股票、自选股、选股筛选、分析任务（含 SSE 实时进度与决策链）、
+报告、模拟交易、定时任务、通知、系统配置、用户管理。后两个仅管理员可见——
+但那只是前端藏菜单，**权限判定在后端**，别因为前端有门禁就以为服务端可以少判一次。
+
+几条从代码上看不出来的约定：
+
+- **加接口要在 `web/src/api/__typecheck__.ts` 补一行。** `request<T>` 是泛型的，
+  手写返回类型时 TypeScript 不核对后端实际返回什么。这个坑踩过三次
+  （分页信封写成裸数组、字段名写错、对象写成数组），三次都编译通过、
+  只在真实数据上才暴露。那份对账表把同类错误变成编译错误。
+- **嵌入前端的 Go 文件只能放在 `web/`。** `go:embed` 的路径模式不允许出现 `..`，
+  放进 `internal/server` 再写 `../../web/dist` 是编译期错误。
+- **`web/dist/.gitkeep` 与 `web/public/.gitkeep` 都不能删。** 产物不进版本库，
+  而 `go:embed` 要求目录非空，前者是为此提交的占位；Vite 每次构建会清空 `dist`
+  把它删掉，后者负责再拷回来。
+- **前端没构建也能 `go build`。** 此时二进制里没有 `index.html`，访问 `/`
+  会返回一句提示而不是白页，启动日志里也会有一条 warn。
+- **未匹配路由的分流在 `internal/server/static.go`。** `/api/`、`/mcp`、`/swagger/`、
+  `/healthz` 下面的仍返回 JSON 信封 404，其余兜底到 `index.html`（前端用 history 路由，
+  不兜底的话 `/analysis/tasks/xxx` 刷新就打不开）。
 
 ## 定时任务与数据同步
 

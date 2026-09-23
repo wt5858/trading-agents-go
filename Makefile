@@ -1,5 +1,6 @@
 .PHONY: wire swagger build vet test fmt check deps-up deps-down up down down-v logs rebuild \
-        dev dev-up dev-down dev-logs
+        dev dev-up dev-down dev-logs \
+        web-install web-dev web-build web-types
 
 # air 的版本钉在这里，而不是 tools.go 里。
 #
@@ -51,6 +52,38 @@ fmt:
 # 提交前重新生成，它就会安静地停在某个历史版本上——而一份过期的 API 文档
 # 比没有文档更贵，因为调用方会信它。
 check: wire swagger fmt build vet test
+
+# ---------------------------------------------------------------------------
+# 前端
+# ---------------------------------------------------------------------------
+
+# 前端是 web/ 下的独立 npm 工程，构建产物由 go:embed 收进二进制（见 internal/server）。
+
+web-install:
+	cd web && npm ci
+
+# web-dev 起 Vite（:5173），/api 反向代理到 :8080。后端要另开一个 make dev。
+web-dev:
+	cd web && npm run dev
+
+web-build:
+	cd web && npm run build
+
+# web-types 从 docs/swagger.json 重新生成前端的 API 类型。
+#
+# 中间那道 swagger2openapi 转换不是多余的：swag v1 产出的是 Swagger 2.0，
+# 而 openapi-typescript 只吃 OpenAPI 3.x。
+#
+# 「那就升 swag v2」这条路走不通，别再试一遍：swag v2 至今只有 v2.0.0-rc6，
+# 没有正式版；而 gin-swagger 唯一的稳定版 v1.6.1 依赖的是 swag v1 那条线，
+# 两者的文档注册表是模块路径隔离的两个全局变量。升上去之后 /swagger
+# 打开就是 "Failed to load API definition" 的空壳——正是 internal/server
+# 里那段空导入注释警告过的症状。用一个 codegen 期的 npm 包换掉这些，很划算。
+#
+# 依赖 swagger 目标：从一份过期的 swagger.json 生成类型，
+# 比不生成更糟——前端会拿着一份看起来很权威的错类型去对接。
+web-types: swagger
+	cd web && npm run gen:api
 
 # ---------------------------------------------------------------------------
 # 热加载（本地）

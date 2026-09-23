@@ -26,6 +26,7 @@ import (
 	watchlist_handlers "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/application/http_handlers"
 	"github.com/wt5858/trading-agents-go/internal/helpers/response"
 	"github.com/wt5858/trading-agents-go/internal/mcpserver"
+	"github.com/wt5858/trading-agents-go/web"
 
 	// docs 是 `make swagger` 生成的包，只在 init 里把 OpenAPI 文档注册进 swag 的全局
 	// 注册表——除此之外没有任何导出符号，所以只能空导入。没有这一行，/swagger 会起来，
@@ -80,10 +81,18 @@ func New(
 	engine := gin.New()
 	engine.Use(RequestID(), Logger(log), Recovery(log), CORS(cfg.HTTP.AllowedOrigins))
 
-	// 未匹配路由同样走统一信封，免得前端在 404 时拿到 gin 的裸文本。
-	engine.NoRoute(func(ctx *gin.Context) {
-		response.FailWith(ctx, response.CodeNotFound, http.StatusNotFound, "接口不存在")
-	})
+	// 未匹配路由交给 SPA 处理器：/api/、/mcp、/swagger/、/healthz 下面的仍然走
+	// 统一信封返回 404，其余一律兜底到前端的 index.html。
+	//
+	// 这两件事必须在同一个 NoRoute 里决定。前端用 history 路由，
+	// /analysis/tasks/xxx 在服务端没有对应文件，不兜底的话这个页面刷新就打不开；
+	// 而接口路径要是也被兜底成 HTML，调用方会拿到 200 + 一段 HTML，
+	// 症状是 JSON.parse 失败，离真正的错误很远。
+	assets, webBuilt := web.Assets()
+	if !webBuilt {
+		log.Warn("前端产物为空，/ 只会返回构建提示；跑 make web-build 后重新编译可内嵌前端")
+	}
+	engine.NoRoute(SPA(assets, webBuilt))
 
 	engine.GET("/healthz", func(ctx *gin.Context) {
 		response.OK(ctx, gin.H{"status": "ok", "app": cfg.App.Name})

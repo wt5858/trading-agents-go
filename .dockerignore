@@ -13,6 +13,10 @@
 /dist
 *.exe
 
+# 前端依赖。几百兆、上万个文件，全部要打进构建上下文送给 daemon——
+# 而镜像里用的是 web-builder 阶段自己 npm ci 装的那一份，这里带进去的没人用。
+web/node_modules
+
 # 文档与杂项对运行时毫无用处
 *.md
 !README.md

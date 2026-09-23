@@ -1,0 +1,21 @@
+node_modules/
+
+# 构建产物不进版本库——提交一份几百 KB 的压缩 JS 只会让 diff 变得不可读。
+#
+# 但 dist/.gitkeep 要提交，而且 public/.gitkeep 也要留着，两个都不能删：
+#
+#   dist/.gitkeep    Go 那边是 `//go:embed all:dist`，目录不存在或一个文件都
+#                    匹配不上就直接编译失败。提交这个空文件，才能让刚 clone
+#                    仓库、还没跑过 npm run build 的人 `go build` 得动。
+#   public/.gitkeep  Vite 每次构建都会清空 outDir，会把上面那个文件一起删掉；
+#                    public/ 下的东西会被原样拷进 dist，于是构建完它又回来了。
+#                    少了它，每次跑完前端构建 git status 里都会多一条
+#                    「deleted: web/dist/.gitkeep」。
+dist/*
+!dist/.gitkeep
+
+# 生成物：由 docs/swagger.json 转换而来，跑 `make web-types` 可重建。
+src/types/api.generated.ts
+.openapi3.json
+
+*.local

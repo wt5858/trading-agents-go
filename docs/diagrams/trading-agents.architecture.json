@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "trading_agents 服务架构",
+    "locale": "zh-CN",
+    "output": "trading-agents.architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "request-path",
+        "label": "同步提交路径",
+        "focus": [
+          "client",
+          "gateway",
+          "analysis",
+          "mysql",
+          "redis"
+        ],
+        "note": "HTTP 提交在拿到并发槽位并落库后立刻返回，不等待分析完成。"
+      },
+      {
+        "id": "async-run",
+        "label": "异步执行链",
+        "focus": [
+          "mq",
+          "worker",
+          "engine",
+          "runtime",
+          "llm"
+        ],
+        "note": "RabbitMQ 解耦提交与执行，Worker 认领任务后驱动 14 个 agent 分阶段跑。"
+      },
+      {
+        "id": "storage",
+        "label": "存储分工",
+        "focus": [
+          "mysql",
+          "mongo",
+          "redis",
+          "stock"
+        ],
+        "note": "MySQL 存权威状态，MongoDB 存行情与 run trace，Redis 存进度、槽位与补全缓存。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "Web / MCP Client",
+      "sublabel": "REST + SSE",
+      "pos": [
+        70,
+        120
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "HTTP Server",
+      "sublabel": "Gin · /api/v1",
+      "pos": [
+        270,
+        120
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "13 handlers"
+    },
+    {
+      "id": "analysis",
+      "type": "backend",
+      "label": "Analysis Context",
+      "sublabel": "任务生命周期",
+      "pos": [
+        480,
+        120
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "mq",
+      "type": "messagebus",
+      "label": "RabbitMQ",
+      "sublabel": "analysis.dispatch",
+      "pos": [
+        700,
+        120
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "3 queues"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM Providers",
+      "sublabel": "Anthropic · OpenAI",
+      "pos": [
+        1140,
+        120
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "Analysis Worker",
+      "sublabel": "队列消费者",
+      "pos": [
+        700,
+        330
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Agent Engine",
+      "sublabel": "五阶段编排 · 14 agents",
+      "pos": [
+        920,
+        330
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "runtime",
+      "type": "backend",
+      "label": "Agent Runtime",
+      "sublabel": "prompt · tool-use 循环",
+      "pos": [
+        1140,
+        330
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "进度 · 槽位 · 补全缓存",
+      "pos": [
+        270,
+        540
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL",
+      "sublabel": "权威状态 · goose 迁移",
+      "pos": [
+        480,
+        540
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "21 migrations"
+    },
+    {
+      "id": "stock",
+      "type": "backend",
+      "label": "Stock Context",
+      "sublabel": "行情供给",
+      "pos": [
+        700,
+        540
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB",
+      "sublabel": "run trace · 行情",
+      "pos": [
+        920,
+        540
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "agent_runs"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "异步执行域 · analysis.dispatch 消费者 goroutine",
+      "wraps": [
+        "worker",
+        "engine",
+        "runtime"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "client-to-gateway",
+      "from": "client",
+      "to": "gateway",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "gateway-to-analysis",
+      "from": "gateway",
+      "to": "analysis",
+      "label": "提交 / 查询"
+    },
+    {
+      "id": "analysis-to-mq",
+      "from": "analysis",
+      "to": "mq",
+      "label": "publish",
+      "variant": "dashed"
+    },
+    {
+      "id": "mq-to-worker",
+      "from": "mq",
+      "to": "worker",
+      "label": "consume",
+      "variant": "dashed",
+      "labelDy": 24
+    },
+    {
+      "id": "worker-to-engine",
+      "from": "worker",
+      "to": "engine",
+      "label": "Engine.Run"
+    },
+    {
+      "id": "engine-to-runtime",
+      "from": "engine",
+      "to": "runtime",
+      "label": "Agent.Act"
+    },
+    {
+      "id": "runtime-to-llm",
+      "from": "runtime",
+      "to": "llm",
+      "label": "tool-use 循环"
+    },
+    {
+      "id": "analysis-to-mysql",
+      "from": "analysis",
+      "to": "mysql",
+      "label": "任务 / 批次状态",
+      "labelDy": 24
+    },
+    {
+      "id": "analysis-to-redis",
+      "from": "analysis",
+      "to": "redis",
+      "label": "槽位 + 进度"
+    },
+    {
+      "id": "engine-to-stock",
+      "from": "engine",
+      "to": "stock",
+      "label": "行情快照"
+    },
+    {
+      "id": "stock-to-mongo",
+      "from": "stock",
+      "to": "mongo",
+      "label": "K线 / 财报 / 新闻",
+      "labelDy": 49
+    },
+    {
+      "id": "engine-to-mongo",
+      "from": "engine",
+      "to": "mongo",
+      "label": "写 run trace",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "进程与接入",
+      "items": [
+        "单 binary 三命令：serve / migrate / backtest",
+        "serve 同时起 HTTP、MQ 消费者与三个后台循环",
+        "DI 按进程拆注入器，HTTP 不接 MQ 消费者"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "异步执行与兜底",
+      "items": [
+        "ClaimTask 原子 UPDATE 吸收重复投递",
+        "Engine.Run 带 25 分钟 deadline 防 LLM 挂死",
+        "reconcile / stale 循环每 5 分钟对账与回收"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "存储与耦合",
+      "items": [
+        "MySQL 权威状态 · MongoDB 变长 trace · Redis 进度缓存",
+        "11 个限界上下文，跨界只有 3 条 wire.Bind",
+        "补全缓存按 prompt digest 定键，24h TTL"
+      ]
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 # ===========================================================================
 # 构建阶段
 # ===========================================================================
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # 它刻意插在 builder 与运行阶段**之间**：不带 --target 构建时 Docker 取的是
 # 最后一个阶段，把 dev 放到文件末尾会让 `make up` 悄悄起一个带 Go 工具链的
 # 开发镜像——照样能跑，但和生产跑的已经是两个东西了。
-FROM golang:1.23-alpine AS dev
+FROM golang:1.25-alpine AS dev
 
 # ca-certificates 用来拉模块和调上游；tzdata 的理由与运行阶段相同。
 RUN apk add --no-cache ca-certificates tzdata

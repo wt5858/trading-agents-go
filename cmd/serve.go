@@ -10,6 +10,7 @@ import (
 
 	"github.com/wt5858/trading-agents-go/config"
 	"github.com/wt5858/trading-agents-go/internal/di/injectors"
+	"github.com/wt5858/trading-agents-go/internal/di/providers"
 	"github.com/wt5858/trading-agents-go/internal/helpers/concurrency"
 )
 
@@ -110,6 +111,18 @@ func startBackground(ctx context.Context, cfg *config.Config, log *zap.Logger) (
 		log.Warn("清理卡住的分析任务失败", zap.Error(err))
 	} else if n > 0 {
 		log.Info("启动时处置了卡住的分析任务", zap.Int("count", n))
+	}
+
+	// 补齐默认的行情同步任务。放在这里而不是 migration 里：cron 时刻是部署策略，
+	// 塞进 migration 之后改一次时刻就得写一条新 migration。
+	//
+	// 只补不改，所以每次启动都跑一遍是安全的；运维改过的 cron 与暂停状态不会被覆盖。
+	// 与 disableScheduler 绑定：不跑调度循环的副本播了任务也没人执行，
+	// 反而会在只提供 HTTP 的副本上凭空多出三条没人管的记录。
+	if cfg.Scheduler.SeedDefaultJobs && !disableScheduler {
+		if n := providers.SeedDefaultJobs(ctx, runners.Scheduler, log); n > 0 {
+			log.Info("已补齐缺失的默认定时任务", zap.Int("created", n))
+		}
 	}
 
 	domainEvents, err := injectors.CreateDomainEventHandlers(ctx, cfg, log)

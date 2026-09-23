@@ -189,11 +189,73 @@ type CreateJobInput struct {
 	MaxConsecutiveFailures int
 }
 
+// EnsureJob 在同名任务缺席时创建它，已存在则原样返回，返回值的第二项表示这次是否新建。
+//
+// # 为什么必须是「只补不改」
+//
+// 这个方法是给组装根在启动期添加系统任务用的，而 cron、payload、超时、乃至
+// status=paused 全都是运维会在界面上改的东西。启动时覆盖等于每次重启都把人工调整
+// 抹掉一遍——其中最危险的是把 paused 重置回 enabled：运维刚把一条打爆上游配额的
+// 任务按停，一次滚动重启就让它自己爬起来接着打。
+//
+// 要改已有任务，走 UpdateJob，那条路径有权限校验也有审计。
+//
+// # 幂等的两道保险
+//
+// 先查后插之间有窗口：多副本同时启动时，两边都会看到「不存在」然后都去插。
+// 第二道保险是 uk_jobs_name 唯一索引 —— 冲突时仓储返回 AlreadyExists，
+// 这里当成「已经有人建好了」按已存在处理，不是错误。
+//
+// 不走 CreateJob 而是自己组装：requireAdmin 守的是「谁能通过接口建任务」，
+// 而添加没有调用者，硬造一个 admin Operator 去过它自己的守卫只是自欺。
+func (s *SchedulerService) EnsureJob(ctx context.Context, in CreateJobInput, createdBy uint64) (*entities.ScheduledJob, bool, error) {
+	existing, err := s.jobs.FindByName(ctx, in.Name)
+	if err == nil {
+		return existing, false, nil
+	}
+	if custom_errors.CodeOf(err) != custom_errors.CodeNotFound {
+		return nil, false, err
+	}
+
+	job, err := s.buildJob(in, createdBy)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := s.jobs.Create(ctx, job); err != nil {
+		if custom_errors.CodeOf(err) != custom_errors.CodeAlreadyExists {
+			return nil, false, err
+		}
+		// 另一个副本抢先建好了。回读一次而不是直接返回本地这份：
+		// 落库的那条才是权威，它的 ID 与 next_run_at 都与本地这份不同。
+		existing, ferr := s.jobs.FindByName(ctx, in.Name)
+		if ferr != nil {
+			return nil, false, ferr
+		}
+		return existing, false, nil
+	}
+	return job, true, nil
+}
+
 // CreateJob 创建一条定时任务。仅管理员。
 func (s *SchedulerService) CreateJob(ctx context.Context, op Operator, in CreateJobInput) (*entities.ScheduledJob, error) {
 	if err := requireAdmin(op); err != nil {
 		return nil, err
 	}
+	job, err := s.buildJob(in, op.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.jobs.Create(ctx, job); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+// buildJob 把入参组装成聚合根，不碰数据库。
+//
+// 抽出来只为让 CreateJob 与 EnsureJob 共用同一套校验：两条路径对 cron、payload、
+// 超时的判定必须一模一样，否则添加进去的任务会是接口建不出来的形状。
+func (s *SchedulerService) buildJob(in CreateJobInput, createdBy uint64) (*entities.ScheduledJob, error) {
 	kind, err := value_objects.NewJobKind(in.Kind)
 	if err != nil {
 		return nil, err
@@ -217,19 +279,12 @@ func (s *SchedulerService) CreateJob(ctx context.Context, op Operator, in Create
 			zap.String("kind", kind.String()), zap.String("name", in.Name))
 	}
 
-	job, err := entities.Schedule(
+	return entities.Schedule(
 		idx.Prefixed("job"), in.Name, kind, spec, payload,
 		in.MaxConsecutiveFailures,
 		time.Duration(in.TimeoutSeconds)*time.Second,
-		op.UserID,
+		createdBy,
 	)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.jobs.Create(ctx, job); err != nil {
-		return nil, err
-	}
-	return job, nil
 }
 
 // UpdateJobInput 是更新任务的入参形状。零值表示「不改这一项」。

@@ -127,8 +127,8 @@ func testTurn(t *testing.T, member *entities.CrewMember) entities.Turn {
 	if err != nil {
 		t.Fatalf("构造请求失败: %v", err)
 	}
-	ac := entities.NewAnalysisContext(req)
-	ac.PutReport(value_objects.KindTrader, "交易方案", value_objects.Usage{})
+	ac := entities.NewAnalysisContext("run_test", req)
+	ac.CommitTurn(value_objects.TurnRecord{Kind: value_objects.KindTrader, Content: "交易方案"})
 	return entities.Turn{Contract: member.Contract(), Snapshot: ac.Snapshot()}
 }
 
@@ -156,7 +156,7 @@ func TestRuntime_ToolLoopFeedsResultsBack(t *testing.T) {
 
 	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{map[value_objects.ToolName]Tool{
 		value_objects.ToolGetQuote: tool,
-	}}, NewPromptService(), RuntimeConfig{}, nil)
+	}}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	res, err := rt.Execute(context.Background(), testTurn(t, entities.NewMarketAnalyst()))
 	if err != nil {
@@ -217,7 +217,7 @@ func TestRuntime_UnauthorizedToolIsRefused(t *testing.T) {
 
 	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{map[value_objects.ToolName]Tool{
 		value_objects.ToolGetFinancials: forbidden,
-	}}, NewPromptService(), RuntimeConfig{}, nil)
+	}}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	// 市场分析师没有财务工具的授权。
 	res, err := rt.Execute(context.Background(), testTurn(t, entities.NewMarketAnalyst()))
@@ -256,7 +256,7 @@ func TestRuntime_ToolFailureIsFedBackNotFatal(t *testing.T) {
 
 	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{map[value_objects.ToolName]Tool{
 		value_objects.ToolGetQuote: broken,
-	}}, NewPromptService(), RuntimeConfig{}, nil)
+	}}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	res, err := rt.Execute(context.Background(), testTurn(t, entities.NewMarketAnalyst()))
 	if err != nil {
@@ -288,7 +288,7 @@ func TestRuntime_MaxToolRoundsTerminates(t *testing.T) {
 
 	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{map[value_objects.ToolName]Tool{
 		value_objects.ToolGetQuote: tool,
-	}}, NewPromptService(), RuntimeConfig{MaxToolRounds: 2}, nil)
+	}}, NewPromptService(), nil, RuntimeConfig{MaxToolRounds: 2}, nil)
 
 	res, err := rt.Execute(context.Background(), testTurn(t, entities.NewMarketAnalyst()))
 	if err != nil {
@@ -316,7 +316,7 @@ func TestRuntime_NoToolsForArbiters(t *testing.T) {
 	}}
 	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{map[value_objects.ToolName]Tool{
 		value_objects.ToolGetQuote: tool,
-	}}, NewPromptService(), RuntimeConfig{}, nil)
+	}}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	if _, err := rt.Execute(context.Background(), testTurn(t, entities.NewRiskManager())); err != nil {
 		t.Fatalf("执行失败: %v", err)
@@ -332,7 +332,7 @@ func TestRuntime_NoToolsForArbiters(t *testing.T) {
 // TestRuntime_ModelErrorCarriesUsage 调用失败时也要把已经产生的消耗带回去。
 func TestRuntime_ModelErrorCarriesUsage(t *testing.T) {
 	client := &scriptedClient{err: errors.New("上游 503")}
-	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{}, NewPromptService(), RuntimeConfig{}, nil)
+	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	if _, err := rt.Execute(context.Background(), testTurn(t, entities.NewMarketAnalyst())); err == nil {
 		t.Fatal("模型失败时必须返回错误")
@@ -342,7 +342,7 @@ func TestRuntime_ModelErrorCarriesUsage(t *testing.T) {
 // TestRuntime_RespectsCanceledContext 已取消的上下文不应发出任何模型请求。
 func TestRuntime_RespectsCanceledContext(t *testing.T) {
 	client := &scriptedClient{replies: []value_objects.CompletionResult{{Content: "不该被调用"}}}
-	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{}, NewPromptService(), RuntimeConfig{}, nil)
+	rt := NewRuntimeService(fixedRouter{client}, mapRegistry{}, NewPromptService(), nil, RuntimeConfig{}, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

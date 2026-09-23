@@ -248,7 +248,7 @@ func (w *WorkerService) RunTask(ctx context.Context, taskID string) error {
 func (w *WorkerService) runEngine(ctx context.Context, task *entities.Task) (*value_objects.Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, constants.AnalysisRunDeadline)
 	defer cancel()
-	return w.engine.Run(runCtx, task.Request, &taskReporter{worker: w, ctx: runCtx, task: task})
+	return w.engine.Run(runCtx, task.ID, task.Request, &taskReporter{worker: w, ctx: runCtx, task: task})
 }
 
 // finishFailed 以失败收尾，并在还有重试余量时重新排队。

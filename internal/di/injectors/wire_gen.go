@@ -10,44 +10,48 @@ import (
 	"context"
 	"github.com/wt5858/trading-agents-go/config"
 	http_handlers3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/application/http_handlers"
-	domain_services4 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/domain_services"
-	repositories4 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/repositories"
+	domain_services2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/domain_services"
+	repositories3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/repositories"
 	amqp_handlers2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/application/amqp_handlers"
 	domain_event_handlers3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/application/domain_event_handlers"
 	http_handlers4 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/application/http_handlers"
-	domain_services5 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/domain_services"
-	repositories5 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/repositories"
+	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/application/mcp_tools"
+	domain_services3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/domain_services"
+	repositories2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/repositories"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/identity/application/http_handlers"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/identity/domain_services"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/identity/repositories"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/application/domain_event_handlers"
 	http_handlers10 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/application/http_handlers"
-	domain_services9 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/domain_services"
-	repositories10 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/repositories"
+	domain_services10 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/domain_services"
+	repositories11 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/notification/repositories"
 	http_handlers9 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/paper_trading/application/http_handlers"
-	domain_services8 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/paper_trading/domain_services"
-	repositories9 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/paper_trading/repositories"
+	domain_services9 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/paper_trading/domain_services"
+	repositories10 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/paper_trading/repositories"
 	domain_event_handlers2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/application/domain_event_handlers"
 	http_handlers5 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/application/http_handlers"
-	domain_services6 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/domain_services"
-	repositories6 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/repositories"
+	domain_services8 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/domain_services"
+	repositories8 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/report/repositories"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/scheduling/application/amqp_handlers"
 	http_handlers6 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/scheduling/application/http_handlers"
-	repositories7 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/scheduling/repositories"
+	repositories9 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/scheduling/repositories"
 	http_handlers11 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/application/http_handlers"
-	domain_services10 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/domain_services"
-	repositories11 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/repositories"
+	mcp_tools3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/application/mcp_tools"
+	domain_services5 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/domain_services"
+	repositories6 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/screening/repositories"
 	http_handlers2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/application/http_handlers"
-	domain_services2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/domain_services"
-	repositories2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/repositories"
+	domain_services6 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/domain_services"
+	repositories5 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/repositories"
 	http_handlers7 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/application/http_handlers"
-	domain_services3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/domain_services"
-	repositories3 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/repositories"
+	domain_services7 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/domain_services"
+	repositories7 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/repositories"
 	http_handlers8 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/application/http_handlers"
-	domain_services7 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/domain_services"
-	repositories8 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/repositories"
+	mcp_tools2 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/application/mcp_tools"
+	domain_services4 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/domain_services"
+	repositories4 "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/repositories"
 	"github.com/wt5858/trading-agents-go/internal/di/providers"
 	"github.com/wt5858/trading-agents-go/internal/helpers/event_handlers"
+	"github.com/wt5858/trading-agents-go/internal/mcpserver"
 	"github.com/wt5858/trading-agents-go/internal/server"
 	"go.uber.org/zap"
 )
@@ -74,82 +78,93 @@ func CreateHTTPServer(ctx context.Context, cfg *config.Config, log *zap.Logger) 
 	}
 	amqpBus := providers.NewDomainEventBus(amqp, log)
 	authService := domain_services.NewAuthService(userRepository, sessionRepository, issuer, bcryptHasher, amqpBus)
-	authHandler := http_handlers.NewAuthHandler(authService)
-	userService := domain_services.NewUserService(userRepository, sessionRepository, bcryptHasher, amqpBus)
-	userHandler := http_handlers.NewUserHandler(userService)
-	stockRepository := repositories2.NewStockRepository(db)
-	database := providers.NewMongoDatabase(connections)
-	marketDataRepository := repositories2.NewMarketDataRepository(database)
-	marketHTTPClient := providers.NewMarketHTTPClient(cfg)
-	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
-	stockService := domain_services2.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
-	stockHandler := http_handlers2.NewStockHandler(stockService)
-	syncRunRepository := repositories2.NewSyncRunRepository(db)
-	syncConfig := providers.NewSyncConfig(cfg)
-	syncService := domain_services2.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
-	syncOperatorResolver := providers.NewStockOperator()
-	syncHandler := http_handlers2.NewSyncHandler(syncService, syncOperatorResolver)
-	llmhttpClient := providers.NewLLMHTTPClient(cfg)
-	llmProviderRepository := repositories3.NewLLMProviderRepository(db)
-	providerResolver := domain_services3.NewProviderResolver(llmProviderRepository)
-	router := providers.NewLLMRouter(ctx, cfg, llmhttpClient, providerResolver, log)
-	indicatorRepository := repositories4.NewIndicatorRepository(database)
-	stockToolRegistry := domain_services4.NewStockToolRegistry(marketDataRepository, indicatorRepository)
-	promptService := domain_services4.NewPromptService()
-	runtimeConfig := providers.NewRuntimeConfig()
-	runtimeService := domain_services4.NewRuntimeService(router, stockToolRegistry, promptService, runtimeConfig, log)
-	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services4.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, amqpBus, log, engineConfig)
-	agentHandler := http_handlers3.NewAgentHandler(engineService)
-	taskRepository := repositories5.NewTaskRepository(db)
+	taskRepository := repositories2.NewTaskRepository(db)
 	taskDispatcher := providers.NewTaskDispatcher(amqp)
 	progressPublisher := providers.NewProgressPublisher(client, cfg)
 	concurrencyGuard := providers.NewConcurrencyGuard(client, cfg)
+	database := providers.NewMongoDatabase(connections)
+	analysisRunRepository := repositories3.NewAnalysisRunRepository(database)
+	decisionChainService := domain_services2.NewDecisionChainService(analysisRunRepository)
 	policy := providers.NewAnalysisPolicy(cfg)
-	analysisService := domain_services5.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, amqpBus, policy)
-	batchRepository := repositories5.NewBatchRepository(db)
-	batchService := domain_services5.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
-	operatorResolver := providers.NewAnalysisOperator()
-	analysisHandler := http_handlers4.NewAnalysisHandler(analysisService, batchService, operatorResolver)
-	reportRepository := repositories6.NewReportRepository(db)
+	analysisService := domain_services3.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, decisionChainService, amqpBus, policy)
+	operatorResolver := providers.NewAnalysisMCPOperator()
+	tools := mcp_tools.NewTools(analysisService, operatorResolver)
+	watchlistGroupRepository := repositories4.NewWatchlistGroupRepository(db)
+	marketDataRepository := repositories5.NewMarketDataRepository(database)
+	watchlistQuoteReader := providers.NewWatchlistQuoteReader(marketDataRepository)
+	watchlistService := domain_services4.NewWatchlistService(watchlistGroupRepository, watchlistQuoteReader, amqpBus)
+	mcp_toolsOperatorResolver := providers.NewWatchlistMCPOperator()
+	mcp_toolsTools := mcp_tools2.NewTools(watchlistService, mcp_toolsOperatorResolver)
+	screeningTemplateRepository := repositories6.NewScreeningTemplateRepository(db)
+	stockScreener := repositories6.NewStockScreener(db, database)
+	screeningService := domain_services5.NewScreeningService(screeningTemplateRepository, stockScreener, amqpBus)
+	operatorResolver2 := providers.NewScreeningMCPOperator()
+	tools2 := mcp_tools3.NewTools(screeningService, operatorResolver2)
+	v := providers.NewMCPRegistrars(tools, mcp_toolsTools, tools2)
+	mcpserverServer := mcpserver.New(authService, v, log)
+	authHandler := http_handlers.NewAuthHandler(authService)
+	userService := domain_services.NewUserService(userRepository, sessionRepository, bcryptHasher, amqpBus)
+	userHandler := http_handlers.NewUserHandler(userService)
+	stockRepository := repositories5.NewStockRepository(db)
+	marketHTTPClient := providers.NewMarketHTTPClient(cfg)
+	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
+	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	stockHandler := http_handlers2.NewStockHandler(stockService)
+	syncRunRepository := repositories5.NewSyncRunRepository(db)
+	syncConfig := providers.NewSyncConfig(cfg)
+	syncService := domain_services6.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
+	syncOperatorResolver := providers.NewStockOperator()
+	syncHandler := http_handlers2.NewSyncHandler(syncService, syncOperatorResolver)
+	llmhttpClient := providers.NewLLMHTTPClient(cfg)
+	llmProviderRepository := repositories7.NewLLMProviderRepository(db)
+	providerResolver := domain_services7.NewProviderResolver(llmProviderRepository)
+	router := providers.NewLLMRouter(ctx, cfg, llmhttpClient, providerResolver, log)
+	indicatorRepository := repositories3.NewIndicatorRepository(database)
+	stockToolRegistry := domain_services2.NewStockToolRegistry(marketDataRepository, indicatorRepository)
+	promptService := domain_services2.NewPromptService()
+	completionCache := providers.NewCompletionCache(client)
+	runtimeConfig := providers.NewRuntimeConfig()
+	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
+	engineConfig := providers.NewEngineConfig()
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
+	agentHandler := http_handlers3.NewAgentHandler(engineService)
+	batchRepository := repositories2.NewBatchRepository(db)
+	batchService := domain_services3.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
+	http_handlersOperatorResolver := providers.NewAnalysisOperator()
+	analysisHandler := http_handlers4.NewAnalysisHandler(analysisService, batchService, http_handlersOperatorResolver)
+	reportRepository := repositories8.NewReportRepository(db)
 	analysisResultAdapter := providers.NewAnalysisResultAdapter(taskRepository)
-	reportService := domain_services6.NewReportService(reportRepository, analysisResultAdapter, amqpBus)
-	http_handlersOperatorResolver := providers.NewReportOperator()
-	reportHandler := http_handlers5.NewReportHandler(reportService, http_handlersOperatorResolver)
-	scheduledJobRepository := repositories7.NewScheduledJobRepository(db)
-	jobExecutionRepository := repositories7.NewJobExecutionRepository(db)
-	jobDispatcher := repositories7.NewJobDispatcher(amqp)
+	reportService := domain_services8.NewReportService(reportRepository, analysisResultAdapter, amqpBus)
+	operatorResolver3 := providers.NewReportOperator()
+	reportHandler := http_handlers5.NewReportHandler(reportService, operatorResolver3)
+	scheduledJobRepository := repositories9.NewScheduledJobRepository(db)
+	jobExecutionRepository := repositories9.NewJobExecutionRepository(db)
+	jobDispatcher := repositories9.NewJobDispatcher(amqp)
 	schedulerConfig := providers.NewSchedulerConfig()
 	marketSyncRunner := providers.NewMarketSyncRunner(syncService)
 	scheduledAnalysisRunner := providers.NewScheduledAnalysisRunner(analysisService)
 	schedulerService := providers.NewSchedulerService(scheduledJobRepository, jobExecutionRepository, jobDispatcher, amqpBus, log, schedulerConfig, marketSyncRunner, scheduledAnalysisRunner)
-	operatorResolver2 := providers.NewSchedulingOperator()
-	scheduledJobHandler := http_handlers6.NewScheduledJobHandler(schedulerService, operatorResolver2)
+	operatorResolver4 := providers.NewSchedulingOperator()
+	scheduledJobHandler := http_handlers6.NewScheduledJobHandler(schedulerService, operatorResolver4)
 	providerProbe := providers.NewProviderProbe(llmhttpClient)
-	llmProviderService := domain_services3.NewLLMProviderService(llmProviderRepository, providerProbe, amqpBus)
-	systemSettingRepository := repositories3.NewSystemSettingRepository(db)
-	configService := domain_services3.NewConfigService(systemSettingRepository, llmProviderRepository, amqpBus)
-	operatorResolver3 := providers.NewSystemOperator()
-	configHandler := http_handlers7.NewConfigHandler(llmProviderService, configService, operatorResolver3)
-	watchlistGroupRepository := repositories8.NewWatchlistGroupRepository(db)
-	watchlistQuoteReader := providers.NewWatchlistQuoteReader(marketDataRepository)
-	watchlistService := domain_services7.NewWatchlistService(watchlistGroupRepository, watchlistQuoteReader, amqpBus)
-	operatorResolver4 := providers.NewWatchlistOperator()
-	watchlistHandler := http_handlers8.NewWatchlistHandler(watchlistService, operatorResolver4)
-	paperAccountRepository := repositories9.NewPaperAccountRepository(db)
+	llmProviderService := domain_services7.NewLLMProviderService(llmProviderRepository, providerProbe, amqpBus)
+	systemSettingRepository := repositories7.NewSystemSettingRepository(db)
+	configService := domain_services7.NewConfigService(systemSettingRepository, llmProviderRepository, amqpBus)
+	operatorResolver5 := providers.NewSystemOperator()
+	configHandler := http_handlers7.NewConfigHandler(llmProviderService, configService, operatorResolver5)
+	operatorResolver6 := providers.NewWatchlistOperator()
+	watchlistHandler := http_handlers8.NewWatchlistHandler(watchlistService, operatorResolver6)
+	paperAccountRepository := repositories10.NewPaperAccountRepository(db)
 	paperQuoteReader := providers.NewPaperQuoteReader(marketDataRepository)
-	paperTradingService := domain_services8.NewPaperTradingService(paperAccountRepository, paperQuoteReader, amqpBus)
-	operatorResolver5 := providers.NewPaperOperator()
-	paperTradingHandler := http_handlers9.NewPaperTradingHandler(paperTradingService, operatorResolver5)
-	notificationRepository := repositories10.NewNotificationRepository(db)
-	notificationService := domain_services9.NewNotificationService(notificationRepository)
-	operatorResolver6 := providers.NewNotificationOperator()
-	notificationHandler := http_handlers10.NewNotificationHandler(notificationService, operatorResolver6)
-	screeningTemplateRepository := repositories11.NewScreeningTemplateRepository(db)
-	stockScreener := repositories11.NewStockScreener(db, database)
-	screeningService := domain_services10.NewScreeningService(screeningTemplateRepository, stockScreener, amqpBus)
-	operatorResolver7 := providers.NewScreeningOperator()
-	screeningHandler := http_handlers11.NewScreeningHandler(screeningService, operatorResolver7)
+	paperTradingService := domain_services9.NewPaperTradingService(paperAccountRepository, paperQuoteReader, amqpBus)
+	operatorResolver7 := providers.NewPaperOperator()
+	paperTradingHandler := http_handlers9.NewPaperTradingHandler(paperTradingService, operatorResolver7)
+	notificationRepository := repositories11.NewNotificationRepository(db)
+	notificationService := domain_services10.NewNotificationService(notificationRepository)
+	operatorResolver8 := providers.NewNotificationOperator()
+	notificationHandler := http_handlers10.NewNotificationHandler(notificationService, operatorResolver8)
+	operatorResolver9 := providers.NewScreeningOperator()
+	screeningHandler := http_handlers11.NewScreeningHandler(screeningService, operatorResolver9)
 	handlers := &server.Handlers{
 		Auth:         authHandler,
 		User:         userHandler,
@@ -165,7 +180,7 @@ func CreateHTTPServer(ctx context.Context, cfg *config.Config, log *zap.Logger) 
 		Notification: notificationHandler,
 		Screening:    screeningHandler,
 	}
-	serverServer := server.New(cfg, log, authService, handlers)
+	serverServer := server.New(cfg, log, authService, mcpserverServer, handlers)
 	return serverServer, nil
 }
 
@@ -203,46 +218,49 @@ func CreateAmqpHandlers(ctx context.Context, cfg *config.Config, log *zap.Logger
 		return nil, err
 	}
 	db := providers.NewGormDB(connections)
-	scheduledJobRepository := repositories7.NewScheduledJobRepository(db)
-	jobExecutionRepository := repositories7.NewJobExecutionRepository(db)
-	jobDispatcher := repositories7.NewJobDispatcher(amqp)
+	scheduledJobRepository := repositories9.NewScheduledJobRepository(db)
+	jobExecutionRepository := repositories9.NewJobExecutionRepository(db)
+	jobDispatcher := repositories9.NewJobDispatcher(amqp)
 	amqpBus := providers.NewDomainEventBus(amqp, log)
 	schedulerConfig := providers.NewSchedulerConfig()
-	stockRepository := repositories2.NewStockRepository(db)
+	stockRepository := repositories5.NewStockRepository(db)
 	database := providers.NewMongoDatabase(connections)
-	marketDataRepository := repositories2.NewMarketDataRepository(database)
-	syncRunRepository := repositories2.NewSyncRunRepository(db)
+	marketDataRepository := repositories5.NewMarketDataRepository(database)
+	syncRunRepository := repositories5.NewSyncRunRepository(db)
 	marketHTTPClient := providers.NewMarketHTTPClient(cfg)
 	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
 	syncConfig := providers.NewSyncConfig(cfg)
-	syncService := domain_services2.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
+	syncService := domain_services6.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
 	marketSyncRunner := providers.NewMarketSyncRunner(syncService)
-	taskRepository := repositories5.NewTaskRepository(db)
+	taskRepository := repositories2.NewTaskRepository(db)
 	taskDispatcher := providers.NewTaskDispatcher(amqp)
 	client := providers.NewRedisClient(connections)
 	progressPublisher := providers.NewProgressPublisher(client, cfg)
 	concurrencyGuard := providers.NewConcurrencyGuard(client, cfg)
+	analysisRunRepository := repositories3.NewAnalysisRunRepository(database)
+	decisionChainService := domain_services2.NewDecisionChainService(analysisRunRepository)
 	policy := providers.NewAnalysisPolicy(cfg)
-	analysisService := domain_services5.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, amqpBus, policy)
+	analysisService := domain_services3.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, decisionChainService, amqpBus, policy)
 	scheduledAnalysisRunner := providers.NewScheduledAnalysisRunner(analysisService)
 	schedulerService := providers.NewSchedulerService(scheduledJobRepository, jobExecutionRepository, jobDispatcher, amqpBus, log, schedulerConfig, marketSyncRunner, scheduledAnalysisRunner)
 	jobDueHandler := amqp_handlers.NewJobDueHandler(schedulerService, log)
-	batchRepository := repositories5.NewBatchRepository(db)
-	batchService := domain_services5.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
+	batchRepository := repositories2.NewBatchRepository(db)
+	batchService := domain_services3.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
 	llmhttpClient := providers.NewLLMHTTPClient(cfg)
-	llmProviderRepository := repositories3.NewLLMProviderRepository(db)
-	providerResolver := domain_services3.NewProviderResolver(llmProviderRepository)
+	llmProviderRepository := repositories7.NewLLMProviderRepository(db)
+	providerResolver := domain_services7.NewProviderResolver(llmProviderRepository)
 	router := providers.NewLLMRouter(ctx, cfg, llmhttpClient, providerResolver, log)
-	indicatorRepository := repositories4.NewIndicatorRepository(database)
-	stockToolRegistry := domain_services4.NewStockToolRegistry(marketDataRepository, indicatorRepository)
-	promptService := domain_services4.NewPromptService()
+	indicatorRepository := repositories3.NewIndicatorRepository(database)
+	stockToolRegistry := domain_services2.NewStockToolRegistry(marketDataRepository, indicatorRepository)
+	promptService := domain_services2.NewPromptService()
+	completionCache := providers.NewCompletionCache(client)
 	runtimeConfig := providers.NewRuntimeConfig()
-	runtimeService := domain_services4.NewRuntimeService(router, stockToolRegistry, promptService, runtimeConfig, log)
-	stockService := domain_services2.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
+	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
 	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services4.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, amqpBus, log, engineConfig)
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
 	workerConfig := providers.NewAnalysisWorkerConfig(cfg)
-	workerService := domain_services5.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
+	workerService := domain_services3.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
 	taskDispatchHandler := amqp_handlers2.NewTaskDispatchHandler(workerService, log)
 	amqpHandlers := event_handlers.NewAmqpHandlers(amqp, log, jobDueHandler, taskDispatchHandler)
 	return amqpHandlers, nil
@@ -260,20 +278,20 @@ func CreateDomainEventHandlers(ctx context.Context, cfg *config.Config, log *zap
 		return nil, err
 	}
 	db := providers.NewGormDB(connections)
-	notificationRepository := repositories10.NewNotificationRepository(db)
-	notificationService := domain_services9.NewNotificationService(notificationRepository)
+	notificationRepository := repositories11.NewNotificationRepository(db)
+	notificationService := domain_services10.NewNotificationService(notificationRepository)
 	notificationSubscriber := domain_event_handlers.NewNotificationSubscriber(notificationService, log)
-	reportRepository := repositories6.NewReportRepository(db)
-	taskRepository := repositories5.NewTaskRepository(db)
+	reportRepository := repositories8.NewReportRepository(db)
+	taskRepository := repositories2.NewTaskRepository(db)
 	analysisResultAdapter := providers.NewAnalysisResultAdapter(taskRepository)
-	reportService := domain_services6.NewReportService(reportRepository, analysisResultAdapter, amqpBus)
+	reportService := domain_services8.NewReportService(reportRepository, analysisResultAdapter, amqpBus)
 	onTaskCompletedHandler := domain_event_handlers2.NewOnTaskCompletedHandler(reportService)
-	batchRepository := repositories5.NewBatchRepository(db)
+	batchRepository := repositories2.NewBatchRepository(db)
 	taskDispatcher := providers.NewTaskDispatcher(amqp)
 	client := providers.NewRedisClient(connections)
 	concurrencyGuard := providers.NewConcurrencyGuard(client, cfg)
 	policy := providers.NewAnalysisPolicy(cfg)
-	batchService := domain_services5.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
+	batchService := domain_services3.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
 	batchSettlementHandler := domain_event_handlers3.NewBatchSettlementHandler(batchService)
 	domainEventHandlers := event_handlers.NewDomainEventHandlers(amqp, amqpBus, log, notificationSubscriber, onTaskCompletedHandler, batchSettlementHandler)
 	return domainEventHandlers, nil
@@ -286,8 +304,8 @@ func CreateWorkerRunners(ctx context.Context, cfg *config.Config, log *zap.Logge
 		return nil, err
 	}
 	db := providers.NewGormDB(connections)
-	taskRepository := repositories5.NewTaskRepository(db)
-	batchRepository := repositories5.NewBatchRepository(db)
+	taskRepository := repositories2.NewTaskRepository(db)
+	batchRepository := repositories2.NewBatchRepository(db)
 	amqp, err := providers.NewSingletonAmqp(cfg, log)
 	if err != nil {
 		return nil, err
@@ -298,35 +316,38 @@ func CreateWorkerRunners(ctx context.Context, cfg *config.Config, log *zap.Logge
 	concurrencyGuard := providers.NewConcurrencyGuard(client, cfg)
 	amqpBus := providers.NewDomainEventBus(amqp, log)
 	policy := providers.NewAnalysisPolicy(cfg)
-	batchService := domain_services5.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
+	batchService := domain_services3.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
 	llmhttpClient := providers.NewLLMHTTPClient(cfg)
-	llmProviderRepository := repositories3.NewLLMProviderRepository(db)
-	providerResolver := domain_services3.NewProviderResolver(llmProviderRepository)
+	llmProviderRepository := repositories7.NewLLMProviderRepository(db)
+	providerResolver := domain_services7.NewProviderResolver(llmProviderRepository)
 	router := providers.NewLLMRouter(ctx, cfg, llmhttpClient, providerResolver, log)
 	database := providers.NewMongoDatabase(connections)
-	marketDataRepository := repositories2.NewMarketDataRepository(database)
-	indicatorRepository := repositories4.NewIndicatorRepository(database)
-	stockToolRegistry := domain_services4.NewStockToolRegistry(marketDataRepository, indicatorRepository)
-	promptService := domain_services4.NewPromptService()
+	marketDataRepository := repositories5.NewMarketDataRepository(database)
+	indicatorRepository := repositories3.NewIndicatorRepository(database)
+	stockToolRegistry := domain_services2.NewStockToolRegistry(marketDataRepository, indicatorRepository)
+	promptService := domain_services2.NewPromptService()
+	completionCache := providers.NewCompletionCache(client)
 	runtimeConfig := providers.NewRuntimeConfig()
-	runtimeService := domain_services4.NewRuntimeService(router, stockToolRegistry, promptService, runtimeConfig, log)
-	stockRepository := repositories2.NewStockRepository(db)
+	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
+	stockRepository := repositories5.NewStockRepository(db)
 	marketHTTPClient := providers.NewMarketHTTPClient(cfg)
 	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
-	stockService := domain_services2.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	analysisRunRepository := repositories3.NewAnalysisRunRepository(database)
 	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services4.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, amqpBus, log, engineConfig)
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
 	workerConfig := providers.NewAnalysisWorkerConfig(cfg)
-	workerService := domain_services5.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
-	scheduledJobRepository := repositories7.NewScheduledJobRepository(db)
-	jobExecutionRepository := repositories7.NewJobExecutionRepository(db)
-	jobDispatcher := repositories7.NewJobDispatcher(amqp)
+	workerService := domain_services3.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
+	scheduledJobRepository := repositories9.NewScheduledJobRepository(db)
+	jobExecutionRepository := repositories9.NewJobExecutionRepository(db)
+	jobDispatcher := repositories9.NewJobDispatcher(amqp)
 	schedulerConfig := providers.NewSchedulerConfig()
-	syncRunRepository := repositories2.NewSyncRunRepository(db)
+	syncRunRepository := repositories5.NewSyncRunRepository(db)
 	syncConfig := providers.NewSyncConfig(cfg)
-	syncService := domain_services2.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
+	syncService := domain_services6.NewSyncService(stockRepository, marketDataRepository, syncRunRepository, composite, amqpBus, log, syncConfig)
 	marketSyncRunner := providers.NewMarketSyncRunner(syncService)
-	analysisService := domain_services5.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, amqpBus, policy)
+	decisionChainService := domain_services2.NewDecisionChainService(analysisRunRepository)
+	analysisService := domain_services3.NewAnalysisService(taskRepository, taskDispatcher, progressPublisher, concurrencyGuard, decisionChainService, amqpBus, policy)
 	scheduledAnalysisRunner := providers.NewScheduledAnalysisRunner(analysisService)
 	schedulerService := providers.NewSchedulerService(scheduledJobRepository, jobExecutionRepository, jobDispatcher, amqpBus, log, schedulerConfig, marketSyncRunner, scheduledAnalysisRunner)
 	workerRunners := providers.NewWorkerRunners(workerService, schedulerService, syncService)

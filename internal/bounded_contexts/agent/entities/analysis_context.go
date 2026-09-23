@@ -93,6 +93,13 @@ func (s ContextSnapshot) HasReport(k value_objects.AgentKind) bool {
 type AnalysisContext struct {
 	domain_event.EventRecorder
 
+	// runID 是这次运行的身份，取自发起它的分析任务 ID。
+	//
+	// 不自己生成一个：轨迹落库之后唯一有意义的查法是「这个任务跑出了什么」，
+	// 用任务 ID 当主键让这条查询不需要任何中间映射表，
+	// 也让消息重投递导致的重跑天然覆盖同一份轨迹而不是堆出两份。
+	// 空串表示这次运行没有对应任务（脚本直调），此时轨迹不落库。
+	runID     string
 	code      shared_vo.StockCode
 	tradeDate shared_vo.TradeDate
 	depth     analysis_vo.Depth
@@ -103,13 +110,19 @@ type AnalysisContext struct {
 	market   MarketBrief
 	reports  map[value_objects.AgentKind]string
 	failures map[value_objects.AgentKind]string
+	// turns 是按提交时刻排列的发言轨迹，只追加不修改。
+	turns []value_objects.TurnRecord
+	// seq 是发言序号的分配器，与 turns 同在写锁下，因此不会重号。
+	seq      int
 	usage    value_objects.Usage
 	decision analysis_vo.Decision
 }
 
 // NewAnalysisContext 按分析请求创建共享状态。
-func NewAnalysisContext(req analysis_vo.Request) *AnalysisContext {
+// runID 传发起本次运行的任务 ID，没有对应任务时传空串。
+func NewAnalysisContext(runID string, req analysis_vo.Request) *AnalysisContext {
 	return &AnalysisContext{
+		runID:     runID,
 		code:      req.Code,
 		tradeDate: req.TradeDate,
 		depth:     req.Depth,
@@ -117,9 +130,12 @@ func NewAnalysisContext(req analysis_vo.Request) *AnalysisContext {
 		startedAt: time.Now(),
 		reports:   make(map[value_objects.AgentKind]string, len(value_objects.AllKinds())),
 		failures:  make(map[value_objects.AgentKind]string, 4),
+		turns:     make([]value_objects.TurnRecord, 0, len(value_objects.AllKinds())),
 	}
 }
 
+func (c *AnalysisContext) RunID() string                  { return c.runID }
+func (c *AnalysisContext) Model() string                  { return c.model }
 func (c *AnalysisContext) Code() shared_vo.StockCode      { return c.code }
 func (c *AnalysisContext) TradeDate() shared_vo.TradeDate { return c.tradeDate }
 func (c *AnalysisContext) Depth() analysis_vo.Depth       { return c.depth }
@@ -134,34 +150,62 @@ func (c *AnalysisContext) LoadMarketBrief(b MarketBrief) {
 	c.market = b
 }
 
-// PutReport 记下一位成员的产出。
+// CommitTurn 收下一位成员的一次发言：记轨迹、记账、写报告或记失败、发事件。
 //
-// 空报告视同没写：模型偶尔会返回空字符串（内容过滤、max_tokens 撞线），
-// 把空串记成「有报告」会让下游智能体以为上游给过结论。
-func (c *AnalysisContext) PutReport(kind value_objects.AgentKind, content string, usage value_objects.Usage) {
+// # 为什么成功与失败走同一个方法
+//
+// 它们原先是 PutReport 与 RecordFailure 两个方法，而两条路径要做的事有八成重合
+// （追加轨迹、累加消耗、发一个成员级事件）。分成两个方法的直接后果是
+// 每加一样要记的东西就得在两处各写一遍，漏掉的那一处只会在
+// 「恰好这位成员失败了」的时候才暴露——agent.go 的注释里说的正是这类偏差。
+// 合成一个入口之后，失败与成功的差别收敛成 rec.Failed 这一个分支。
+//
+// # 不变式
+//
+//   - 序号在写锁内分配，因此并行阶段的三到六位成员不会重号，
+//     且序号顺序就是真实完成顺序；
+//   - 空报告视同没写：模型偶尔返回空字符串（内容过滤、max_tokens 撞线），
+//     把空串记成「有报告」会让下游智能体以为上游给过结论；
+//   - 失败同样计消耗：撞上下文长度上限的那次调用是真花了钱的，
+//     不记账会让成本统计长期偏低。
+func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if content != "" {
-		c.reports[kind] = content
+
+	// 阶段可以从身份推出来，允许调用方不填：让每个调用点自己填一遍，
+	// 迟早有人填成另一个阶段，而那种错误在轨迹里看起来完全正常。
+	if rec.Phase == "" {
+		rec.Phase = rec.Kind.Phase()
+	}
+	c.seq++
+	rec.Seq = c.seq
+	c.turns = append(c.turns, rec)
+
+	c.usage = c.usage.Plus(rec.Usage)
+
+	if rec.Failed {
+		c.failures[rec.Kind] = rec.FailReason
+		c.AddDomainEvent(domain_events.NewOnAgentFailed(
+			c.code.FullSymbol(), c.tradeDate.String(), rec.Kind.String(), rec.FailReason))
+		return
+	}
+
+	if rec.Content != "" {
+		c.reports[rec.Kind] = rec.Content
 		// 成功一次就把之前的失败记录清掉：失败后重试成功的成员
 		// 不该在报告里继续挂着「已失败」的牌子。
-		delete(c.failures, kind)
+		delete(c.failures, rec.Kind)
 	}
-	c.usage = c.usage.Plus(usage)
 	c.AddDomainEvent(domain_events.NewOnAgentCompleted(
-		c.code.FullSymbol(), c.tradeDate.String(), kind.String(),
-		usage.TotalTokens, usage.CostUSD))
+		c.code.FullSymbol(), c.tradeDate.String(), rec.Kind.String(),
+		rec.Usage.TotalTokens, rec.Usage.CostUSD))
 }
 
-// RecordFailure 记下一位成员的失败。失败也要计消耗：
-// 撞上下文长度上限的那次调用是真花了钱的，不记账会让成本统计长期偏低。
-func (c *AnalysisContext) RecordFailure(kind value_objects.AgentKind, reason string, usage value_objects.Usage) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failures[kind] = reason
-	c.usage = c.usage.Plus(usage)
-	c.AddDomainEvent(domain_events.NewOnAgentFailed(
-		c.code.FullSymbol(), c.tradeDate.String(), kind.String(), reason))
+// Turns 返回发言轨迹的副本，按提交顺序排列。
+func (c *AnalysisContext) Turns() []value_objects.TurnRecord {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]value_objects.TurnRecord(nil), c.turns...)
 }
 
 // SetDecision 收下终局决策，并在收下时就把它收敛到合法区间。
@@ -237,6 +281,55 @@ func (c *AnalysisContext) Decision() analysis_vo.Decision {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.decision
+}
+
+// FinalDecision 返回这次分析对外的终局决策连同它的归属，
+// 是「决策收敛」这条不变式的落点。
+//
+// 深度低于 3 时不跑风控阶段，也就没有风控经理来 SetDecision，此时决策从交易员的
+// 方案里解析。不这么做的话，浅层分析会返回一个 action=undecided 的结果——
+// 明明交易员已经白纸黑字写了「买入」，用户看到的却是「待定」。
+//
+// # 为什么连归属一起返回
+//
+// 因为「结论是谁的」只能在这里判。归属如果由别处另行推导（比如按
+// 「风控经理有没有发言」），就会在一种很常见的情况下与结论分叉：
+// 风控经理正常写了报告，但末尾的结构化块格式坏掉，ParseDecision 退化成
+// undecided——结论已经回落到交易员，归属却还写着风控经理终裁。
+// 决策链界面上「风控经理终裁」这行字，指的必须是真的给出了这个结论的那个人。
+//
+// 它必须在聚合里而不是在引擎里：终局决策有两个读者（装配给用户的 Result，
+// 以及落库的运行轨迹），规则放在引擎里就意味着谁想读都得记得先调一次那个私有函数，
+// 漏掉的那个读者会拿到一个和另一个读者不一致的结论。
+func (c *AnalysisContext) FinalDecision() value_objects.SettledDecision {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.decision.Action.Valid() && c.decision.Action != analysis_vo.ActionUndecided {
+		return value_objects.SettledDecision{
+			Decision:  c.decision,
+			DecidedBy: value_objects.KindRiskManager,
+		}
+	}
+
+	plan := c.reports[value_objects.KindTrader]
+	if plan == "" {
+		// 谁都没给出方向。归属留空而不是硬安给某位成员：
+		// 「没有结论」本身是一个诚实且可展示的状态。
+		return value_objects.SettledDecision{Decision: c.decision}
+	}
+	fallback := value_objects.ParseDecision(plan)
+	// 只在真的解析出方向时才替换，否则保留原值（含风控经理写下的理由）。
+	if fallback.Action == analysis_vo.ActionUndecided {
+		return value_objects.SettledDecision{Decision: c.decision}
+	}
+	if c.decision.Reasoning != "" {
+		fallback.Reasoning = c.decision.Reasoning
+	}
+	return value_objects.SettledDecision{
+		Decision:  fallback.Normalized(),
+		DecidedBy: value_objects.KindTrader,
+	}
 }
 
 // HasAnyReport 判定是否至少有一份报告。

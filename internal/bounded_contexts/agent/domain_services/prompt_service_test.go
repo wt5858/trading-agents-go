@@ -35,7 +35,7 @@ func fullContext(t *testing.T) *entities.AnalysisContext {
 		t.Fatalf("构造请求失败: %v", err)
 	}
 
-	ac := entities.NewAnalysisContext(req)
+	ac := entities.NewAnalysisContext("run_test", req)
 	quote, err := stock_vo.NewQuote(code, shared_vo.MustTradeDate("2024-03-01"))
 	if err != nil {
 		t.Fatalf("构造行情失败: %v", err)
@@ -74,7 +74,7 @@ func fullContext(t *testing.T) *entities.AnalysisContext {
 	// 给每一位可能被引用的上游成员都放一份报告，
 	// 这样任何一个模板引用缺失都会以「渲染出占位符」而不是 panic 的形式暴露。
 	for _, kind := range value_objects.AllKinds() {
-		ac.PutReport(kind, "【"+kind.DisplayName()+"的报告正文】", value_objects.Usage{})
+		ac.CommitTurn(value_objects.TurnRecord{Kind: kind, Content: "【" + kind.DisplayName() + "的报告正文】"})
 	}
 	return ac
 }
@@ -212,9 +212,9 @@ func TestPromptService_AbsentAgentIsStatedExplicitly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("构造请求失败: %v", err)
 	}
-	ac := entities.NewAnalysisContext(req)
-	ac.PutReport(value_objects.KindMarketAnalyst, "技术面报告", value_objects.Usage{})
-	ac.RecordFailure(value_objects.KindSentimentAnalyst, "舆情数据源超时", value_objects.Usage{})
+	ac := entities.NewAnalysisContext("run_test", req)
+	ac.CommitTurn(value_objects.TurnRecord{Kind: value_objects.KindMarketAnalyst, Content: "技术面报告"})
+	ac.CommitTurn(value_objects.TurnRecord{Kind: value_objects.KindSentimentAnalyst}.Failing("舆情数据源超时"))
 
 	msgs, err := NewPromptService().Render(entities.Turn{
 		Contract: entities.NewBullResearcher().Contract(),

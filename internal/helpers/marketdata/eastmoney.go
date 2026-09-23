@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -56,13 +58,25 @@ import (
 //  1. **主机选错**。非大陆 IP 打 push2 系主机，连接会在 3~5 秒时被掐；
 //     实测 82.push2 三次成一次、72.push2 三次全废，而对应的 push2delay 三次全成。
 //     push2 本来就会在它愿意的时候 302 到 push2delay，所以境外拿到的一直是
-//     延时行情，只是多依赖了一跳并不可靠的重定向。现在直连 delay 主机，
-//     不损失数据，只是去掉那一跳。这一条是确定性的，重试救不了。
+//     延时行情，只是多依赖了一跳并不可靠的重定向。直连 delay 主机不损失数据，
+//     只是去掉那一跳。这一条是确定性的，重试救不了。
 //  2. **打太快**。这一条才是真正的限流，靠 EastmoneyRPS 压住。
 //
-// 部署到大陆网络内时把 spotHosts 换回 push2 可以拿到实时行情。
+// # 为什么 spotHosts 是候选链而不是单个主机
+//
+// 2026-09-23 实测：push2delay 整个集群（1./7./60./72./82. 全部前缀，两个边缘 IP
+// 61.152.229.217 与 114.80.72.189）持续返回 nginx 502。这是东财自己的后端故障，
+// 不是限流也不是我们的参数问题——重试层已经在重试 502，重试多少次都是 502。
+// 而批量行情只有东财一个源（tushare 的批量端点要 2000 积分，它如实声明了没有
+// 这个能力），单主机写死意味着对端一个集群挂掉 = quotes/klines 同步彻底不可用。
+//
+// 所以每个市场给一串候选主机，按顺序整轮重扫，第一个跑通的用到底。备选那一档
+// 刻意用 http 而不是 https：同一时刻实测 http://82.push2 五次全成，而
+// https://82.push2 五次全废（TLS 握手后空响应）。clist 是匿名公开接口，ut 是
+// 对所有人都一样的固定串，明文不泄露任何东西，拿不到数据才是真问题。
 type EastmoneyProvider struct {
-	spotHosts map[shared_vo.Market]string
+	// spotHosts 是各市场 clist 主机的候选链，按顺序试，理由见类型文档。
+	spotHosts map[shared_vo.Market][]string
 	klineHost string
 	// searchHost 是站内搜索，个股资讯走它。与行情/K 线是完全独立的一套接口，
 	// 连响应格式都不同（它只给 JSONP）。
@@ -131,18 +145,18 @@ func NewEastmoneyProvider(httpClient *http.Client, rps float64, burst int) *East
 	p := &EastmoneyProvider{
 		// A 股与港美股分属不同的推送集群（82 / 72），走错主机会拿到空集而不是报错。
 		//
-		// 用 push2delay 而不是 push2，是实测结果不是保守：
-		// 非大陆出口 IP 打 push2，连接会被建立之后再在 3~5 秒时掐掉（Go 侧表现为 EOF），
-		// 实测 82.push2 三次里成一次、72.push2 三次全废；而对应的 push2delay
-		// 三次全成。push2 本来就会在它心情好的时候 302 到 push2delay，
-		// 也就是说我们**一直拿的都是延时行情**，只是多依赖了一跳并不可靠的重定向。
-		// 直连 delay 主机不损失任何数据，只是把那一跳去掉。
+		// 每档的第一项是 push2delay：非大陆出口 IP 打 push2，连接会被建立之后再在
+		// 3~5 秒时掐掉（Go 侧表现为 EOF），实测 82.push2 三次里成一次、72.push2
+		// 三次全废；而对应的 push2delay 三次全成。push2 本来就会在它心情好的时候
+		// 302 到 push2delay，也就是说我们**一直拿的都是延时行情**，只是多依赖了
+		// 一跳并不可靠的重定向。直连 delay 主机不损失任何数据，只是把那一跳去掉。
 		//
-		// 如果部署到大陆网络内，把这里换回 push2 能拿到实时行情——那时 302 不会发生。
-		spotHosts: map[shared_vo.Market]string{
-			shared_vo.MarketCN: "https://82.push2delay.eastmoney.com",
-			shared_vo.MarketHK: "https://72.push2delay.eastmoney.com",
-			shared_vo.MarketUS: "https://72.push2delay.eastmoney.com",
+		// 第二项是 delay 集群整体挂掉时的退路，只在第一项整轮失败后才会被用到，
+		// 不改变常态下的取数路径。用 http 是实测结论，见类型文档。
+		spotHosts: map[shared_vo.Market][]string{
+			shared_vo.MarketCN: {"https://82.push2delay.eastmoney.com", "http://82.push2.eastmoney.com"},
+			shared_vo.MarketHK: {"https://72.push2delay.eastmoney.com", "http://72.push2.eastmoney.com"},
+			shared_vo.MarketUS: {"https://72.push2delay.eastmoney.com", "http://72.push2.eastmoney.com"},
 		},
 		// K 线没有对应的 delay 主机：实测 push2hisdelay 三次全废，而 push2his
 		// 三次里成两次。这条路只能靠 throttle.go 的重试兜，别去找 delay 变体。
@@ -215,9 +229,42 @@ func (p *EastmoneyProvider) fetchSpot(ctx context.Context, market shared_vo.Mark
 	if !ok {
 		return nil, custom_errors.Invalid("eastmoney 不支持市场 %s", market)
 	}
-	host := p.spotHosts[market]
+	hosts := p.spotHosts[market]
+	if len(hosts) == 0 {
+		return nil, custom_errors.Invalid("eastmoney 未配置市场 %s 的 clist 主机", market)
+	}
 	ctx = withOutboundTarget(ctx, "clist:"+market.String())
 
+	// 换主机就整轮重扫，不在翻页中途切。
+	//
+	// 中途切主机会让前后两半来自不同集群：两边的 total 与排序各自独立，拼出来的
+	// 列表可能少几只票也可能多几只，而 all-or-nothing 那条不变式恰恰是为了不让
+	// 「我们没问完」被上层当成「源没给」。重扫最多浪费一轮翻页（A 股约 56 次请求），
+	// 而候选链只在对端整个集群挂掉时才走到第二项——这个代价一年也付不了几次。
+	var errs []error
+	for _, host := range hosts {
+		rows, err := p.scanSpot(ctx, market, filter, host)
+		if err == nil {
+			return rows, nil
+		}
+		// 取消/超时不是主机故障，换一个只会把停机再拖一轮翻页。
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		// 带上主机名再聚合：否则两条 502 长得一模一样，看不出是哪一档挂的。
+		errs = append(errs, fmt.Errorf("[%s] %w", host, err))
+		logger.FromContext(ctx).Warn("eastmoney clist 主机不可用，尝试下一个候选",
+			zap.String("market", market.String()), zap.String("host", host), zap.Error(err))
+	}
+	return nil, custom_errors.Unavailable(
+		"eastmoney clist 全部候选主机均不可用（市场 %s）", market,
+	).Wrap(errors.Join(errs...))
+}
+
+// scanSpot 用指定主机完成一整轮翻页扫描，语义与 fetchSpot 的 all-or-nothing 一致。
+func (p *EastmoneyProvider) scanSpot(
+	ctx context.Context, market shared_vo.Market, filter, host string,
+) ([]spotRow, error) {
 	var (
 		rows  []spotRow
 		total = -1

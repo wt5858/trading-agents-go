@@ -34,10 +34,100 @@ func NewSchedulerConfig() scheduling_services.SchedulerConfig {
 		// 必须大于队列配置的重投间隔（2m），否则恢复巡检会去补投一条
 		// 其实正躺在重试队列里等着的消息。
 		QueuedGrace: 5 * time.Minute,
-		// 必须显著大于任务自身的执行超时：一次全市场行情同步跑十几分钟是正常的。
-		RunningGrace:    30 * time.Minute,
+		// 必须显著大于**最长的那条任务**的超时，不是大于「一般任务」的超时。
+		//
+		// 取 2 小时是被日线同步逼出来的：没有批量按日端点时它退回逐标的路径，
+		// A 股 5900 只 × EastmoneyRPS 2 次/秒 ≈ 50 分钟，而下面 defaultJobs 里
+		// 给它的超时是 7200 秒。用 30 分钟去判它，恢复巡检会把一条正在好好干活的
+		// 执行判成「消费者死了」，补投一条新的——于是两条同时在跑，一起去撞
+		// sync_runs 的 running_key 唯一索引，后一条必然失败。
+		RunningGrace:    2 * time.Hour,
 		RecoverInterval: time.Minute,
 	}
+}
+
+// seedCreatedBy 是添加任务记在 created_by 上的用户 ID。
+//
+// scheduled_jobs.created_by 刻意没有外键（跨上下文只按标识引用），所以这个值
+// 不需要真实存在；它只是审计列，约定 1 号为初始管理员。而 entities.Schedule
+// 拒绝 0（「任务必须记录创建人」），因此这里不能用零值表达「系统创建」。
+const seedCreatedBy uint64 = 1
+
+// defaultJobs 是新环境起来就该有的行情同步任务。
+//
+// # 为什么要添加，而不是让运维手动建
+//
+// 建表 migration 没有种子数据，唯一的创建入口是管理接口。结果是每套新环境
+// （本地、测试、生产）都要有人记得手动建一遍同样的三条任务，漏建的表现不是报错
+// 而是**什么都不发生**——调度器每 30 秒扫一次，扫到 0 行，日志上安静得像一切正常。
+//
+// # cron 按 Asia/Shanghai 解释
+//
+// robfig/cron 用 time.Local 算下次触发，而 Dockerfile 里 ENV TZ=Asia/Shanghai。
+// 这两件事必须同时成立，时刻才对得上 A 股交易时段；改镜像时区等于改这张表的含义。
+//
+// # 顺序不是摆设
+//
+// stock_list 排在最前：stocks 表为空时 listSymbols 返回 404「没有可同步的标的」，
+// 后两条会整条失败。三条之间没有任何编排，靠 cron 时刻拉开间距。
+var defaultJobs = []scheduling_services.CreateJobInput{
+	{
+		Name: "CN-股票列表-每日",
+		Kind: "market_sync",
+		// 开盘前跑：新股上市当天就该在名单里，否则当天的行情与 K 线会因为
+		// 没有本地锚点被整批丢掉（见 syncQuotesBatch 的 universe 过滤）。
+		Cron:           "30 8 * * 1-5",
+		Payload:        map[string]any{"kind": "stock_list", "market": "CN"},
+		TimeoutSeconds: 600,
+	},
+	{
+		Name: "CN-行情快照-每日",
+		Kind: "market_sync",
+		// A 股 15:00 收盘，留半小时给东财的收盘数据落定。
+		Cron:           "30 15 * * 1-5",
+		Payload:        map[string]any{"kind": "quotes", "market": "CN"},
+		TimeoutSeconds: 900,
+	},
+	{
+		Name: "CN-日线-每日",
+		Kind: "market_sync",
+		// 排在行情之后：两条都要打同一个数据源，岔开时刻是为了不让它们
+		// 共享同一个令牌桶互相饿死。
+		Cron:    "0 16 * * 1-5",
+		Payload: map[string]any{"kind": "klines", "market": "CN"},
+		// 两小时，不是一般任务那种十分钟：有批量按日端点时这条只要几分钟，
+		// 没有时退回逐标的路径就是 5900 次调用约 50 分钟。超时按后者给，
+		// 否则这条任务在降级路径上永远跑不完。
+		TimeoutSeconds: 7200,
+	},
+}
+
+// SeedDefaultJobs 添加 defaultJobs 里缺席的任务，返回这次新建了几条。
+//
+// 只补不改（见 SchedulerService.EnsureJob）：已存在的任务连看都不看一眼，
+// 运维改过的 cron、暂停状态都不会被重启抹掉。反过来说，**改这张表里的 cron
+// 不会影响已经建好的环境**——那属于改已有任务，走管理接口。
+//
+// 单条失败不阻断其余：一条 cron 写错不该让另外两条也播不进去，那会把一次
+// 手误放大成「整个环境没有任何定时任务」。
+func SeedDefaultJobs(ctx context.Context, svc *scheduling_services.SchedulerService, log *zap.Logger) int {
+	created := 0
+	for _, in := range defaultJobs {
+		job, isNew, err := svc.EnsureJob(ctx, in, seedCreatedBy)
+		if err != nil {
+			log.Error("添加默认定时任务失败",
+				zap.String("name", in.Name), zap.Error(err))
+			continue
+		}
+		if !isNew {
+			continue
+		}
+		created++
+		log.Info("已添加默认定时任务",
+			zap.String("name", job.Name), zap.String("cron", job.Cron.String()),
+			zap.Time("next_run_at", job.NextRunAt))
+	}
+	return created
 }
 
 // MarketSyncRunner 把行情同步接到调度器上。

@@ -299,10 +299,10 @@ func lastSMA(xs []decimal.Decimal, span int) decimal.Decimal {
 	return decimalx.RoundIndicator(sum.DivRound(decimal.NewFromInt(int64(span)), calcScale))
 }
 
-// emaSeries 返回整条指数移动平均序列，用首个样本播种。
+// emaSeries 返回整条指数移动平均序列，用首个样本添加。
 //
-// 用首值播种而不是用前 span 个样本的 SMA 播种：两种做法在国内外行情软件里都存在，
-// 差异随样本增加迅速衰减，而首值播种能让 span 长于样本数时仍然给出有意义的值。
+// 用首值添加而不是用前 span 个样本的 SMA 添加：两种做法在国内外行情软件里都存在，
+// 差异随样本增加迅速衰减，而首值添加能让 span 长于样本数时仍然给出有意义的值。
 // 关键是全系统只用这一种，报告里的数字才能和自己前后一致。
 func emaSeries(xs []decimal.Decimal, span int) []decimal.Decimal {
 	out := make([]decimal.Decimal, len(xs))

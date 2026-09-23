@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/wire"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/wt5858/trading-agents-go/config"
@@ -60,6 +61,15 @@ func NewLLMRouter(
 	return router
 }
 
+// NewCompletionCache 建发言缓存。
+//
+// TTL 只是内存上限，不是「结论多久失效」——后者由缓存键本身回答：
+// 键是提示词指纹，输入变了指纹就变了，根本命中不到旧结论。
+// 详见 agent/repositories/completion_cache.go 顶部那段说明。
+func NewCompletionCache(rdb *redis.Client) *agent_repo.CompletionCache {
+	return agent_repo.NewCompletionCache(rdb, 24*time.Hour)
+}
+
 func NewRuntimeConfig() agent_services.RuntimeConfig {
 	return agent_services.RuntimeConfig{
 		Temperature:     0.3,
@@ -86,11 +96,14 @@ var AgentSet = wire.NewSet(
 	NewLLMRouter,
 	NewRuntimeConfig,
 	NewEngineConfig,
+	NewCompletionCache,
 	agent_repo.NewIndicatorRepository,
+	agent_repo.NewAnalysisRunRepository,
 	agent_services.NewPromptService,
 	agent_services.NewStockToolRegistry,
 	agent_services.NewRuntimeService,
 	agent_services.NewEngineService,
+	agent_services.NewDecisionChainService,
 
 	// agent 上下文只认自己声明的窄端口，不认 helpers 里的具体实现，
 	// 也不认 stock 上下文的服务类型——跨上下文只通过接口往来。

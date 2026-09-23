@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/domain_services"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/entities"
@@ -56,6 +57,7 @@ func (h *AnalysisHandler) Register(rg *gin.RouterGroup, authRequired gin.Handler
 	g.GET("/tasks", h.ListMine)
 	g.GET("/tasks/:id", h.GetTask)
 	g.GET("/tasks/:id/result", h.GetResult)
+	g.GET("/tasks/:id/decision-chain", h.GetDecisionChain)
 	g.POST("/tasks/:id/cancel", h.Cancel)
 	g.GET("/tasks/:id/progress", h.StreamProgress)
 	g.POST("/batches", h.SubmitBatch)
@@ -222,6 +224,34 @@ func (h *AnalysisHandler) GetResult(c *gin.Context) {
 		return
 	}
 	response.OK(c, toResultView(result))
+}
+
+// GetDecisionChain 查询分析任务的决策链。
+//
+// 它回答的是「这个结论是怎么来的」：十四位成员按真实完成顺序各说了什么、
+// 各花了多久多少钱，以及终裁由谁给出、基于什么理由。
+//
+// @Summary  查询决策链
+// @Tags     分析任务
+// @Produce  json
+// @Security BearerAuth
+// @Param    id path string true "任务 ID"
+// @Success  200 {object} response.Envelope{data=decisionChainView}
+// @Failure  401 {object} response.Envelope "未登录或令牌无效"
+// @Failure  403 {object} response.Envelope "无权查看他人的分析任务"
+// @Failure  404 {object} response.Envelope "任务不存在，或该任务没有留下运行轨迹"
+// @Router   /analysis/tasks/{id}/decision-chain [get]
+func (h *AnalysisHandler) GetDecisionChain(c *gin.Context) {
+	op, ok := h.operator(c)
+	if !ok {
+		return
+	}
+	chain, err := h.analysisService.GetDecisionChain(c.Request.Context(), op, c.Param("id"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, toDecisionChainView(chain))
 }
 
 // ListMine 分页列出当前用户的分析任务。
@@ -606,6 +636,83 @@ func toResultView(r *value_objects.Result) *resultView {
 		Usage:     r.Usage,
 		Phases:    r.Phases,
 		CreatedAt: r.CreatedAt,
+	}
+}
+
+type chainLinkView struct {
+	Seq         int             `json:"seq" example:"3"`
+	Agent       string          `json:"agent" example:"bear"`
+	AgentName   string          `json:"agentName" example:"空头研究员"`
+	Phase       string          `json:"phase" example:"debate"`
+	Stance      string          `json:"stance" example:"bearish"`
+	StanceName  string          `json:"stanceName" example:"看空"`
+	Claim       string          `json:"claim"`
+	Content     string          `json:"content"`
+	DurationS   decimal.Decimal `json:"durationSeconds" swaggertype:"string" example:"12.480"`
+	TotalTokens int             `json:"totalTokens" example:"1820"`
+	CostUSD     decimal.Decimal `json:"costUsd" swaggertype:"string" example:"0.0043"`
+	Failed      bool            `json:"failed" example:"false"`
+	FailReason  string          `json:"failReason,omitempty"`
+} // @name analysis.ChainLinkView
+
+type chainVerdictView struct {
+	DecidedBy     string                 `json:"decidedBy" example:"risk_manager"`
+	DecidedByName string                 `json:"decidedByName" example:"风控经理"`
+	Decision      value_objects.Decision `json:"decision"`
+	Action        string                 `json:"actionText" example:"买入"`
+	Reasoning     string                 `json:"reasoning"`
+} // @name analysis.ChainVerdictView
+
+type decisionChainView struct {
+	TaskID     string                   `json:"taskId"`
+	Symbol     string                   `json:"symbol" example:"600519.SH"`
+	TradeDate  string                   `json:"tradeDate" example:"2026-09-17"`
+	Links      []chainLinkView          `json:"links"`
+	Verdict    chainVerdictView         `json:"verdict"`
+	Usage      value_objects.TokenUsage `json:"usage"`
+	DurationS  decimal.Decimal          `json:"durationSeconds" swaggertype:"string" example:"186.204"`
+	Failed     bool                     `json:"failed" example:"false"`
+	FailReason string                   `json:"failReason,omitempty"`
+} // @name analysis.DecisionChainView
+
+func toDecisionChainView(c *value_objects.DecisionChain) *decisionChainView {
+	if c == nil {
+		return nil
+	}
+	links := make([]chainLinkView, 0, len(c.Links))
+	for _, l := range c.Links {
+		links = append(links, chainLinkView{
+			Seq:         l.Seq,
+			Agent:       l.Agent,
+			AgentName:   l.AgentName,
+			Phase:       l.Phase,
+			Stance:      l.Stance.String(),
+			StanceName:  l.Stance.DisplayName(),
+			Claim:       l.Claim,
+			Content:     l.Content,
+			DurationS:   l.DurationS,
+			TotalTokens: l.TotalTokens,
+			CostUSD:     l.CostUSD,
+			Failed:      l.Failed,
+			FailReason:  l.FailReason,
+		})
+	}
+	return &decisionChainView{
+		TaskID:    c.TaskID,
+		Symbol:    c.Symbol,
+		TradeDate: c.TradeDate,
+		Links:     links,
+		Verdict: chainVerdictView{
+			DecidedBy:     c.Verdict.DecidedBy,
+			DecidedByName: c.Verdict.DecidedByName,
+			Decision:      c.Verdict.Decision,
+			Action:        c.Verdict.Decision.Action.DisplayName(),
+			Reasoning:     c.Verdict.Reasoning,
+		},
+		Usage:      c.Usage,
+		DurationS:  c.DurationS,
+		Failed:     c.Failed,
+		FailReason: c.FailReason,
 	}
 }
 

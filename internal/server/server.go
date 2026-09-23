@@ -25,6 +25,7 @@ import (
 	system_handlers "github.com/wt5858/trading-agents-go/internal/bounded_contexts/system_config/application/http_handlers"
 	watchlist_handlers "github.com/wt5858/trading-agents-go/internal/bounded_contexts/watchlist/application/http_handlers"
 	"github.com/wt5858/trading-agents-go/internal/helpers/response"
+	"github.com/wt5858/trading-agents-go/internal/mcpserver"
 
 	// docs 是 `make swagger` 生成的包，只在 init 里把 OpenAPI 文档注册进 swag 的全局
 	// 注册表——除此之外没有任何导出符号，所以只能空导入。没有这一行，/swagger 会起来，
@@ -65,7 +66,13 @@ type Handlers struct {
 // 它收 *config.Config 与各处理器，而不再收整个装配容器：本包因此不依赖
 // internal/di，依赖方向是单向的（di -> server）。反过来会形成 import 环，
 // 也会让「路由层到底用了容器里的什么」永远说不清楚。
-func New(cfg *config.Config, log *zap.Logger, authService *identity_services.AuthService, h *Handlers) *Server {
+func New(
+	cfg *config.Config,
+	log *zap.Logger,
+	authService *identity_services.AuthService,
+	mcp *mcpserver.Server,
+	h *Handlers,
+) *Server {
 	if cfg.App.IsProd() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -91,6 +98,20 @@ func New(cfg *config.Config, log *zap.Logger, authService *identity_services.Aut
 		engine.GET("/swagger/*any", gin_swagger.WrapHandler(swagger_files.Handler))
 		log.Info("Swagger UI 已挂载", zap.String("url", "http://"+cfg.HTTP.Addr()+"/swagger/index.html"))
 	}
+
+	// MCP 挂在 /api/v1 之外，且不套 authRequired。
+	//
+	// 两条都是刻意的。挂在 /api/v1 之外：那个前缀下的每条路由都遵循本项目的
+	// 统一响应信封（response.Envelope），而 MCP 说的是 JSON-RPC，
+	// 把它塞进同一个前缀会让「/api/v1 下的响应长什么样」这条约定出现唯一的例外。
+	// 不套 authRequired：那是个 gin 中间件，它把 Claims 写进 *gin.Context，
+	// 而 MCP 处理器手上只有 context.Context，取不到；鉴权由 mcpserver 自己那层
+	// 完成（internal/mcpserver/auth.go），走的是同一个 AuthService。
+	// 单个端点、放行全部方法：Streamable HTTP 传输在同一个 URL 上用
+	// POST 发消息、GET 开 SSE 流、DELETE 关会话，没有子路径。
+	// 不要顺手再注册一条 /mcp/*any——它和这条在 gin 的路由树里是冲突的，
+	// 表现为进程启动时直接 panic。
+	engine.Any("/mcp", gin.WrapH(mcp))
 
 	authRequired := AuthRequired(authService)
 	api := engine.Group("/api/v1")

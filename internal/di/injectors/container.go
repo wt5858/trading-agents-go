@@ -48,6 +48,7 @@ func CreateHTTPServer(ctx context.Context, cfg *config.Config, log *zap.Logger) 
 		providers.ScreeningSet,
 		providers.NotificationSet,
 		providers.HTTPSet,
+		providers.MCPSet,
 	))
 }
 

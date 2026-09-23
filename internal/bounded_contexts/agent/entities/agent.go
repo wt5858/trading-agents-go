@@ -2,6 +2,7 @@ package entities
 
 import (
 	"context"
+	"time"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
@@ -29,7 +30,7 @@ type Agent interface {
 // 十四位成员的差异全部落在三处：契约（含提示词身份与工具授权）、前置条件、
 // 以及对产出的额外处理。行为骨架——渲染快照、调 Runtime、写回上下文、记账——
 // 逐字相同。写成十四份会得到十四份几乎一样的 Act，
-// 而这种重复的危险不在于行数，在于「其中一份忘了 RecordFailure」这类偏差
+// 而这种重复的危险不在于行数，在于「其中一份忘了 CommitTurn」这类偏差
 // 只会在那位成员恰好失败时才暴露。
 //
 // 因此差异用字段表达，骨架只有一份。每位成员仍有自己的具名构造函数
@@ -54,18 +55,23 @@ func (m *CrewMember) Contract() value_objects.Contract { return m.contract }
 //  2. 交给 Runtime 执行（提示词渲染与工具循环都在那一侧）；
 //  3. 把产出写回共享上下文，并让特化的 absorb 再处理一次。
 //
-// 失败路径同样调用 RecordFailure：失败的那次调用是真花了 token 的，
+// 失败路径同样提交一条轨迹：失败的那次调用是真花了 token 的，
 // 不记账会让成本统计长期偏低；而且下游智能体需要知道「情绪面缺席」这件事，
 // 缺席和「情绪面中性」是两个完全不同的结论。
+//
+// 耗时从这里开始计，而不是从 Runtime 进模型调用开始：前置条件校验与提示词渲染
+// 也是这位成员占用的时间，把它们排除在外，就再也解释不了
+// 「阶段总耗时比成员耗时之和大一截」这件事。
 func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) error {
 	if rt == nil {
 		return custom_errors.Internal("%s 缺少运行时", m.contract.DisplayName)
 	}
+	started := time.Now()
 	snapshot := ac.Snapshot()
 
 	if m.requires != nil {
 		if err := m.requires(snapshot); err != nil {
-			ac.RecordFailure(m.contract.Kind, custom_errors.MessageOf(err), value_objects.Usage{})
+			ac.CommitTurn(m.turn(started, TurnResult{}).Failing(custom_errors.MessageOf(err)))
 			return err
 		}
 	}
@@ -73,19 +79,39 @@ func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) e
 	res, err := rt.Execute(ctx, Turn{Contract: m.contract, Snapshot: snapshot})
 	if err != nil {
 		// Runtime 即使失败也可能已经消耗了 token（例如工具循环跑了两轮才超时），
-		// 所以这里照样把 res.Usage 记进去。
-		ac.RecordFailure(m.contract.Kind, custom_errors.MessageOf(err), res.Usage)
+		// 所以这里照样把 res 里的消耗与提示词摘要记进去。
+		ac.CommitTurn(m.turn(started, res).Failing(custom_errors.MessageOf(err)))
 		return err
 	}
 	if res.Content == "" {
 		reason := "模型未返回任何内容"
-		ac.RecordFailure(m.contract.Kind, reason, res.Usage)
+		ac.CommitTurn(m.turn(started, res).Failing(reason))
 		return custom_errors.Unavailable("%s %s", m.contract.DisplayName, reason)
 	}
 
-	ac.PutReport(m.contract.Kind, res.Content, res.Usage)
+	ac.CommitTurn(m.turn(started, res))
 	if m.absorb != nil {
 		m.absorb(ac, res)
 	}
 	return nil
+}
+
+// turn 把契约与 Runtime 的产出拼成一条成功轨迹。
+// 三条失败路径与一条成功路径共用它，避免其中一条漏记某个字段——
+// 漏记不会报错，只会让轨迹里那一列在某类失败下永远是空的。
+func (m *CrewMember) turn(started time.Time, res TurnResult) value_objects.TurnRecord {
+	return value_objects.TurnRecord{
+		Kind:         m.contract.Kind,
+		Phase:        m.contract.Phase,
+		StartedAt:    started,
+		Duration:     time.Since(started),
+		Model:        res.Model,
+		PromptChars:  res.PromptChars,
+		PromptDigest: res.PromptDigest,
+		Content:      res.Content,
+		Usage:        res.Usage,
+		ToolRounds:   res.ToolRounds,
+		Truncated:    res.Truncated,
+		CacheHit:     res.CacheHit,
+	}
 }

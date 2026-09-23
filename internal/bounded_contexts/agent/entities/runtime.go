@@ -19,6 +19,17 @@ type TurnResult struct {
 	ToolRounds int
 	// Truncated 表示工具循环撞到了轮数上限，产出可能不完整。
 	Truncated bool
+
+	// Model 是路由解析之后真正用上的模型名。它由 Runtime 回填而不是由成员自己填：
+	// 快照里的 Model 可以是空串（走默认）或一个别名，只有 Runtime 知道最终落到了谁身上。
+	Model string
+	// PromptChars / PromptDigest 是入参提示词的摘要，用途见 value_objects.TurnRecord。
+	// 失败时也要带回来：排查「为什么这位成员挂了」的第一个问题就是它到底看到了什么。
+	PromptChars  int
+	PromptDigest string
+	// CacheHit 表示这份产出直接取自缓存。命中时 Usage 为零值，
+	// 因为这次运行确实没有向模型发过一个字。
+	CacheHit bool
 }
 
 // Runtime 是实体层对「让一位成员真正开口说话」这件事的抽象。

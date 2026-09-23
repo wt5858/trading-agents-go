@@ -59,10 +59,14 @@ func (f *fakeAgent) Act(ctx context.Context, _ Runtime, ac *AnalysisContext) err
 		}
 	}
 	if f.fail != nil {
-		ac.RecordFailure(f.contract.Kind, f.fail.Error(), value_objects.Usage{})
+		ac.CommitTurn(value_objects.TurnRecord{Kind: f.contract.Kind}.Failing(f.fail.Error()))
 		return f.fail
 	}
-	ac.PutReport(f.contract.Kind, "报告:"+f.contract.Kind.String(), value_objects.Usage{Calls: 1, TotalTokens: 10})
+	ac.CommitTurn(value_objects.TurnRecord{
+		Kind:    f.contract.Kind,
+		Content: "报告:" + f.contract.Kind.String(),
+		Usage:   value_objects.Usage{Calls: 1, TotalTokens: 10},
+	})
 	return nil
 }
 
@@ -114,7 +118,7 @@ func newTestContext(t *testing.T, depth analysis_vo.Depth) *AnalysisContext {
 	if err != nil {
 		t.Fatalf("构造请求失败: %v", err)
 	}
-	return NewAnalysisContext(req)
+	return NewAnalysisContext("run_test", req)
 }
 
 func contains(list []string, want string) bool {
@@ -400,7 +404,7 @@ func (r scriptedRuntime) Execute(_ context.Context, turn Turn) (TurnResult, erro
 func TestRiskManager_AbsorbsDecision(t *testing.T) {
 	ac := newTestContext(t, analysis_vo.DepthExhaustive)
 	// 前置条件：风控经理要求交易方案存在。
-	ac.PutReport(value_objects.KindTrader, "交易方案：回踩买入", value_objects.Usage{})
+	ac.CommitTurn(value_objects.TurnRecord{Kind: value_objects.KindTrader, Content: "交易方案：回踩买入"})
 
 	rt := scriptedRuntime{replies: map[value_objects.AgentKind]string{
 		value_objects.KindRiskManager: "## 终裁\n采纳中性派意见。\n\n===决策===\n动作: 买入\n置信度: 0.66\n建议仓位: 20\n风险评分: 5\n===结束===",
@@ -468,7 +472,11 @@ func TestAnalysisContext_ConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func(k value_objects.AgentKind) {
 			defer wg.Done()
-			ac.PutReport(k, "报告", value_objects.Usage{Calls: 1, TotalTokens: 1})
+			ac.CommitTurn(value_objects.TurnRecord{
+				Kind:    k,
+				Content: "报告",
+				Usage:   value_objects.Usage{Calls: 1, TotalTokens: 1},
+			})
 			_ = ac.Snapshot()
 		}(kind)
 	}

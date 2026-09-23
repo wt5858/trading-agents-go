@@ -40,8 +40,24 @@ type ProgressReporter interface {
 //
 // 它收 Request、回 Result，全程不碰 Task 聚合：任务的状态机不该被引擎左右，
 // 引擎只负责「给定输入算出结论」这一件事。
+//
+// runID 是本次运行的身份，传任务 ID。它不是 Task 聚合的引用，只是一个字符串——
+// 跨限界上下文只传 ID 与值对象，把 Task 递进去就等于把状态机也递了进去。
+// 引擎拿它给运行轨迹当主键，好让「这个任务当时到底怎么跑的」可以被反查；
+// 没有对应任务的调用方（脚本、回测）传空串，此时轨迹不落库。
 type Engine interface {
-	Run(ctx context.Context, req value_objects.Request, reporter ProgressReporter) (*value_objects.Result, error)
+	Run(ctx context.Context, runID string, req value_objects.Request, reporter ProgressReporter) (*value_objects.Result, error)
+}
+
+// DecisionChainReader 是决策链读取端口，由 agent 上下文实现，本上下文只消费。
+//
+// 单独声明一个窄接口而不是把这个方法挂到 Engine 上：Engine 的语义是
+// 「给定输入算出结论」，它是一条写路径。把一个读查询塞进去，
+// 任何需要读决策链的地方就都拿到了发起一次分析的能力。
+type DecisionChainReader interface {
+	// DecisionChain 按运行 ID（即任务 ID）取一次分析的决策链。
+	// 轨迹不存在时回 NotFound——深度浅、跑得早的任务可能根本没有轨迹。
+	DecisionChain(ctx context.Context, runID string) (*value_objects.DecisionChain, error)
 }
 
 // Limits 是并发额度配置。0 表示该维度不限流。

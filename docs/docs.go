@@ -548,6 +548,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/analysis/tasks/{id}/decision-chain": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "分析任务"
+                ],
+                "summary": "查询决策链",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/analysis.DecisionChainView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "401": {
+                        "description": "未登录或令牌无效",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "403": {
+                        "description": "无权查看他人的分析任务",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    },
+                    "404": {
+                        "description": "任务不存在，或该任务没有留下运行轨迹",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/analysis/tasks/{id}/progress": {
             "get": {
                 "security": [
@@ -6321,6 +6384,122 @@ const docTemplate = `{
                 "canceled": {
                     "type": "boolean",
                     "example": true
+                }
+            }
+        },
+        "analysis.ChainLinkView": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string",
+                    "example": "bear"
+                },
+                "agentName": {
+                    "type": "string",
+                    "example": "空头研究员"
+                },
+                "claim": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "costUsd": {
+                    "type": "string",
+                    "example": "0.0043"
+                },
+                "durationSeconds": {
+                    "type": "string",
+                    "example": "12.480"
+                },
+                "failReason": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "phase": {
+                    "type": "string",
+                    "example": "debate"
+                },
+                "seq": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "stance": {
+                    "type": "string",
+                    "example": "bearish"
+                },
+                "stanceName": {
+                    "type": "string",
+                    "example": "看空"
+                },
+                "totalTokens": {
+                    "type": "integer",
+                    "example": 1820
+                }
+            }
+        },
+        "analysis.ChainVerdictView": {
+            "type": "object",
+            "properties": {
+                "actionText": {
+                    "type": "string",
+                    "example": "买入"
+                },
+                "decidedBy": {
+                    "type": "string",
+                    "example": "risk_manager"
+                },
+                "decidedByName": {
+                    "type": "string",
+                    "example": "风控经理"
+                },
+                "decision": {
+                    "$ref": "#/definitions/value_objects.Decision"
+                },
+                "reasoning": {
+                    "type": "string"
+                }
+            }
+        },
+        "analysis.DecisionChainView": {
+            "type": "object",
+            "properties": {
+                "durationSeconds": {
+                    "type": "string",
+                    "example": "186.204"
+                },
+                "failReason": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/analysis.ChainLinkView"
+                    }
+                },
+                "symbol": {
+                    "type": "string",
+                    "example": "600519.SH"
+                },
+                "taskId": {
+                    "type": "string"
+                },
+                "tradeDate": {
+                    "type": "string",
+                    "example": "2026-09-17"
+                },
+                "usage": {
+                    "$ref": "#/definitions/value_objects.TokenUsage"
+                },
+                "verdict": {
+                    "$ref": "#/definitions/analysis.ChainVerdictView"
                 }
             }
         },

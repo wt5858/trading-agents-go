@@ -28,6 +28,19 @@ type Config struct {
 	LLM    LLM    `mapstructure:"llm"`
 	Market Market `mapstructure:"market"`
 	Log    Log    `mapstructure:"log"`
+
+	Scheduler Scheduler `mapstructure:"scheduler"`
+}
+
+// Scheduler 是定时任务的装配开关。调度器自身的运行参数（抢占上限、宽限期）
+// 不在这里：那些是部署形态决定的常量，归组装根的 NewSchedulerConfig。
+type Scheduler struct {
+	// SeedDefaultJobs 控制启动时是否补齐默认的行情同步任务。
+	//
+	// 默认开，因为漏建任务的表现不是报错而是「什么都不发生」。
+	// 需要关掉它的场景只有一个：有人**故意**删掉了某条默认任务，
+	// 而添加会在下次重启时把它建回来。
+	SeedDefaultJobs bool `mapstructure:"seed_default_jobs"`
 }
 
 type App struct {
@@ -592,6 +605,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("market.eastmoney_burst", 1)
 	v.SetDefault("market.sync_fan_out_limit", 8)
 	v.SetDefault("market.sync_chunk_size", 200)
+
+	v.SetDefault("scheduler.seed_default_jobs", true)
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "console")

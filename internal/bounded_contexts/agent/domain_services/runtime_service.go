@@ -2,12 +2,15 @@ package domain_services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"go.uber.org/zap"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/entities"
+	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/repositories"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/helpers/concurrency"
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
@@ -74,20 +77,31 @@ type RuntimeService struct {
 	router  ModelRouter
 	tools   ToolRegistry
 	prompts *PromptService
+	cache   *repositories.CompletionCache
 	cfg     RuntimeConfig
 	log     *zap.Logger
 }
 
 var _ entities.Runtime = (*RuntimeService)(nil)
 
-func NewRuntimeService(router ModelRouter, tools ToolRegistry, prompts *PromptService, cfg RuntimeConfig, log *zap.Logger) *RuntimeService {
+func NewRuntimeService(
+	router ModelRouter,
+	tools ToolRegistry,
+	prompts *PromptService,
+	cache *repositories.CompletionCache,
+	cfg RuntimeConfig,
+	log *zap.Logger,
+) *RuntimeService {
 	if prompts == nil {
 		prompts = NewPromptService()
 	}
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &RuntimeService{router: router, tools: tools, prompts: prompts, cfg: cfg.normalized(), log: log}
+	return &RuntimeService{
+		router: router, tools: tools, prompts: prompts,
+		cache: cache, cfg: cfg.normalized(), log: log,
+	}
 }
 
 // Execute 让一位成员完成一次发言。
@@ -112,17 +126,114 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		Access:        contract.Access,
 	}
 
-	resp, err := s.chat(ctx, req, ToolInvocation{Code: turn.Snapshot.Code, TradeDate: turn.Snapshot.TradeDate})
+	promptChars, promptDigest := digestRequest(req)
+
+	// 路由在这里解析一次，解析结果直接交给 chat。
+	//
+	// 必须在调模型之前拿到真实模型名：缓存键是「模型 + 提示词指纹」，
+	// 而请求里的 Model 可以是空串（走默认）或一个别名——拿它当键，
+	// 换了默认模型之后会命中上一个模型产出的结论，且看不出任何异常。
+	client, model, err := s.router.Resolve(req.Model)
 	if err != nil {
-		// 失败也把已经产生的消耗带回去：撞上下文上限之前的那几轮是真花了钱的。
-		return entities.TurnResult{Usage: resp.Usage}, err
+		return entities.TurnResult{PromptChars: promptChars, PromptDigest: promptDigest}, err
 	}
-	return entities.TurnResult{
-		Content:    strings.TrimSpace(resp.Content),
-		Usage:      resp.Usage,
+
+	if cached, ok := s.lookupCache(ctx, model, promptDigest); ok {
+		s.log.Debug("命中发言缓存",
+			zap.String("agent", contract.Kind.String()),
+			zap.String("model", model),
+			zap.String("prompt_digest", promptDigest))
+		return entities.TurnResult{
+			Content:    cached.Content,
+			ToolRounds: cached.ToolRounds,
+			Truncated:  cached.Truncated,
+			Model:      model,
+			// Usage 留零值：这次运行一个字都没发给模型，记上消耗会让成本统计虚高。
+			PromptChars:  promptChars,
+			PromptDigest: promptDigest,
+			CacheHit:     true,
+		}, nil
+	}
+
+	resp, err := s.chat(ctx, client, model, req, ToolInvocation{Code: turn.Snapshot.Code, TradeDate: turn.Snapshot.TradeDate})
+	if err != nil {
+		// 失败也把已经产生的消耗与提示词摘要带回去：撞上下文上限之前的那几轮是真花了钱的，
+		// 而「它到底看到了多长的输入」正是这类失败的第一个排查问题。
+		return entities.TurnResult{
+			Usage:        resp.Usage,
+			Model:        resp.Model,
+			PromptChars:  promptChars,
+			PromptDigest: promptDigest,
+		}, err
+	}
+	content := strings.TrimSpace(resp.Content)
+	s.storeCache(ctx, model, promptDigest, value_objects.CachedTurn{
+		Content:    content,
 		ToolRounds: resp.ToolRounds,
 		Truncated:  resp.Truncated,
+		Model:      resp.Model,
+	})
+
+	return entities.TurnResult{
+		Content:      content,
+		Usage:        resp.Usage,
+		ToolRounds:   resp.ToolRounds,
+		Truncated:    resp.Truncated,
+		Model:        resp.Model,
+		PromptChars:  promptChars,
+		PromptDigest: promptDigest,
 	}, nil
+}
+
+// lookupCache / storeCache 把「有没有配缓存」这个判断收在一处。
+//
+// 缓存是可选依赖：注入 nil 表示不启用，此时全部调用照常打到模型上。
+// 让每个调用点各写一次 if s.cache != nil，迟早有一处漏掉而 panic。
+func (s *RuntimeService) lookupCache(ctx context.Context, model, digest string) (value_objects.CachedTurn, bool) {
+	if s.cache == nil {
+		return value_objects.CachedTurn{}, false
+	}
+	return s.cache.Get(ctx, model, digest)
+}
+
+func (s *RuntimeService) storeCache(ctx context.Context, model, digest string, turn value_objects.CachedTurn) {
+	if s.cache == nil {
+		return
+	}
+	s.cache.Put(ctx, model, digest, turn)
+}
+
+// digestRequest 返回提示词的字符数与整个请求的短指纹。
+//
+// 指纹取 sha256 的前 8 字节（16 个十六进制字符），有两个用途：
+// 排查时判断两次发言看到的输入是不是同一份（指纹一样说明是模型在抖，
+// 不一样说明素材变了），以及当作发言缓存的键。
+// 这两个用途都不需要抗碰撞强度，16 个字符足够，也让轨迹文档小一点。
+//
+// # 为什么哈希的不只是提示词正文
+//
+// 因为缓存键必须覆盖**全部会改变产出的输入**。只哈希正文时有一个很难发现的故障：
+// 发现某位成员的报告被 max_tokens 截断、调大 RuntimeConfig.MaxTokens 重新部署之后，
+// 提示词一个字没变 → 指纹没变 → 24 小时内一直命中那份旧的截断结果，
+// 改动看起来完全没生效。采样温度与工具授权同理。
+//
+// 消息之间写一个 0 字节分隔：否则 system="ab"+user="c" 与 system="a"+user="bc"
+// 会得到同一个指纹。当前提示词结构固定，实际撞不上，但这一行的成本是零。
+func digestRequest(req value_objects.ChatRequest) (int, string) {
+	h := sha256.New()
+	chars := 0
+	for _, m := range req.Messages {
+		chars += len([]rune(m.Content))
+		h.Write([]byte(m.Content))
+		h.Write([]byte{0})
+	}
+	// 采样参数与工具授权一并进键。工具只取名字：声明的描述与 schema
+	// 是随代码走的，不会在同一个二进制里变化。
+	fmt.Fprintf(h, "\x00t=%v\x00mt=%d\x00tr=%d", req.Temperature, req.MaxTokens, req.MaxToolRounds)
+	for _, name := range req.Access.Names() {
+		h.Write([]byte("\x00tool=" + name.String()))
+	}
+	return chars, hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 // chat 是工具调用循环。
@@ -133,11 +244,20 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 // 而那时所有已花费的 token 都拿不回任何结论。
 //
 // 同一轮里的多个工具调用则是真正的扇出，走 helpers/concurrency，不用裸 goroutine。
-func (s *RuntimeService) chat(ctx context.Context, req value_objects.ChatRequest, subject ToolInvocation) (value_objects.ChatResponse, error) {
-	client, model, err := s.router.Resolve(req.Model)
-	if err != nil {
-		return value_objects.ChatResponse{}, err
-	}
+// client 与 model 由 Execute 解析好传进来，本方法不再自己 Resolve：
+// 缓存键要用真实模型名，Execute 那边必须先拿到它，解析两次纯属重复。
+func (s *RuntimeService) chat(
+	ctx context.Context,
+	client LLMClient,
+	model string,
+	req value_objects.ChatRequest,
+	subject ToolInvocation,
+) (resp value_objects.ChatResponse, err error) {
+	// 解析出来的模型名统一在出口回填，而不是在下面七个 return 上各写一遍。
+	// 这个循环的退出点会随着厂商的怪异行为继续增加（见下面那条「没给工具也硬发工具调用」），
+	// 每加一个出口就要记得补一次 Model，漏掉的那一个不会报错，
+	// 只会让某一类失败的轨迹里模型名神秘地空着。
+	defer func() { resp.Model = model }()
 
 	messages := append([]value_objects.Message(nil), req.Messages...)
 	var usage value_objects.Usage

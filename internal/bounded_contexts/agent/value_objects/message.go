@@ -158,6 +158,11 @@ type ChatResponse struct {
 	// Truncated 表示循环是因为撞到 MaxToolRounds 上限才结束的。
 	// 这种回答通常不完整，调用方据此决定要不要在报告里加一句提示。
 	Truncated bool
+	// Model 是路由解析之后真正计费的模型名。
+	// 它必须由这一层回填：请求里的 Model 可以是空串或别名，
+	// 而执行轨迹要记的是实际落到哪个模型上——换了模型却记着旧名字，
+	// 事后按模型归因的成本统计就是错的。
+	Model string
 }
 
 func (r ChatResponse) IsZero() bool { return strings.TrimSpace(r.Content) == "" && r.Usage.IsZero() }

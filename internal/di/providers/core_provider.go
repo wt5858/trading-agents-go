@@ -49,6 +49,9 @@ var CoreSet = wire.NewSet(
 	// analysis 只认「能跑一次完整流水线」这个能力，不认 agent 的服务类型。
 	wire.Bind(new(analysis_services.Engine), new(*agent_services.EngineService)),
 
+	// 读决策链是另一个能力，绑到另一个实现上：能看轨迹不等于能发起一次分析。
+	wire.Bind(new(analysis_services.DecisionChainReader), new(*agent_services.DecisionChainService)),
+
 	// scheduling 只认「把一个字符串发到某个路由键上」，不认整个消息队列客户端。
 	wire.Bind(new(scheduling_repo.MessagePublisher), new(*mq.AMQP)),
 )

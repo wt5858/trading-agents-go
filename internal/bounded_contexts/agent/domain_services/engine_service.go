@@ -47,6 +47,13 @@ const (
 	defaultEngineFinLimit    = 8
 	defaultIndicatorTTL      = 30 * time.Minute
 
+	// saveRunTimeout 是落库运行轨迹的超时。
+	//
+	// 它必须是一个独立的短超时：这一步常常发生在业务 ctx 已经超时之后
+	// （一次跑挂的分析），沿用原 ctx 会让它必然失败。给一个短上限则是因为
+	// 轨迹写不进去也不该拖住 worker——这时候 worker 还欠着一次任务状态的收尾。
+	saveRunTimeout = 5 * time.Second
+
 	// defaultDataFanOut 是数据准备阶段的并发上限。
 	//
 	// 这一阶段是四个彼此独立的 Mongo 查询（行情/财务/资讯/舆情），
@@ -94,6 +101,7 @@ type EngineService struct {
 	market     MarketReader
 	backfill   MarketBackfiller
 	indicators *repositories.IndicatorRepository
+	runs       *repositories.AnalysisRunRepository
 	publisher  domain_event.Publisher
 	log        *zap.Logger
 	cfg        EngineConfig
@@ -106,6 +114,7 @@ func NewEngineService(
 	market MarketReader,
 	backfill MarketBackfiller,
 	indicators *repositories.IndicatorRepository,
+	runs *repositories.AnalysisRunRepository,
 	publisher domain_event.Publisher,
 	log *zap.Logger,
 	cfg EngineConfig,
@@ -122,6 +131,7 @@ func NewEngineService(
 		market:     market,
 		backfill:   backfill,
 		indicators: indicators,
+		runs:       runs,
 		publisher:  publisher,
 		log:        log,
 		cfg:        cfg.normalized(),
@@ -140,6 +150,7 @@ func NewEngineService(
 // 这里只负责首尾两个（prepare 与 report），中间的由编排器按成员契约汇报。
 func (s *EngineService) Run(
 	ctx context.Context,
+	runID string,
 	req analysis_vo.Request,
 	reporter analysis_services.ProgressReporter,
 ) (*analysis_vo.Result, error) {
@@ -149,12 +160,16 @@ func (s *EngineService) Run(
 	sink := progressSinkOf(reporter)
 	started := time.Now()
 
-	ac := entities.NewAnalysisContext(req)
+	ac := entities.NewAnalysisContext(runID, req)
 
 	// ---- 阶段一：数据准备 ----
 	brief, err := s.collect(ctx, req)
 	if err != nil {
 		sink.StepFailed(value_objects.StepPrepare.String(), custom_errors.MessageOf(err))
+		// 这一步失败时一位成员都还没发言，轨迹里只有一句「为什么没跑起来」。
+		// 照样落库：排查「这只票的分析总是失败」时，第一个要区分的就是
+		// 「数据没备齐」与「模型挂了」，而后者的轨迹里是有发言记录的。
+		s.saveRun(ctx, ac, err)
 		return nil, err
 	}
 	ac.LoadMarketBrief(brief)
@@ -167,20 +182,23 @@ func (s *EngineService) Run(
 	// ---- 阶段二到五：交给编排器 ----
 	plan, err := entities.NewPlan(req, s.crew)
 	if err != nil {
+		s.saveRun(ctx, ac, err)
 		return nil, err
 	}
 	outcomes, runErr := entities.NewOrchestrator(plan, sink).Run(ctx, s.runtime, ac)
 
-	// 事件先发：无论成败，已经发生的消耗与失败都是既成事实，
+	// 事件先发、轨迹紧随：无论成败，已经发生的消耗与失败都是既成事实，
 	// 计费与监控不该因为整体失败而丢掉这些记录。
+	// 失败那次的轨迹恰恰是最值得留下的——成功的分析没人会去回放。
 	s.publish(ctx, ac)
+	s.saveRun(ctx, ac, runErr)
 
 	if runErr != nil {
 		return nil, runErr
 	}
 
 	// ---- 收尾：装配结果 ----
-	decision := s.finalDecision(ac)
+	decision := ac.FinalDecision().Decision
 	reports := ac.Reports()
 	usage := ac.Usage()
 
@@ -202,28 +220,31 @@ func (s *EngineService) Run(
 	return &result, nil
 }
 
-// finalDecision 取出终局决策。
+// saveRun 落库本次运行的轨迹。cause 为 nil 表示正常收尾。
 //
-// 深度低于 3 时不跑风控阶段，也就没有风控经理，此时决策从交易员的方案里解析。
-// 不这么做的话，浅层分析会返回一个 action=undecided 的结果——
-// 明明交易员已经白纸黑字写了「买入」，用户看到的却是「待定」。
-func (s *EngineService) finalDecision(ac *entities.AnalysisContext) analysis_vo.Decision {
-	d := ac.Decision()
-	if d.Action.Valid() && d.Action != analysis_vo.ActionUndecided {
-		return d
+// 落库失败只记日志、不改变本次分析的成败：轨迹是观测数据，
+// 让一次已经算出结论的分析因为「日志没写进去」而对用户报错，
+// 是把观测手段的可用性绑在了业务路径上。反过来也成立——
+// 分析失败了轨迹照样要写，那是唯一一份能解释失败原因的东西。
+func (s *EngineService) saveRun(ctx context.Context, ac *entities.AnalysisContext, cause error) {
+	if s.runs == nil {
+		return
 	}
-	reports := ac.Reports()
-	if plan := reports[value_objects.KindTrader.String()]; plan != "" {
-		fallback := value_objects.ParseDecision(plan)
-		// 只在真的解析出方向时才替换，否则保留原值（含风控经理写下的理由）。
-		if fallback.Action != analysis_vo.ActionUndecided {
-			if d.Reasoning != "" {
-				fallback.Reasoning = d.Reasoning
-			}
-			return fallback.Normalized()
-		}
+	reason := ""
+	if cause != nil {
+		reason = custom_errors.MessageOf(cause)
 	}
-	return d
+	// 用一个独立的 ctx：走到这里时业务 ctx 常常已经因为超时或取消而失效，
+	// 而那正是最需要留下轨迹的一次运行。沿用它等于「跑挂的分析一律没有轨迹」。
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveRunTimeout)
+	defer cancel()
+
+	if err := s.runs.Save(saveCtx, ac, time.Now(), reason); err != nil {
+		s.log.Warn("保存分析轨迹失败",
+			zap.String("run_id", ac.RunID()),
+			zap.String("symbol", ac.Code().FullSymbol()),
+			zap.Error(err))
+	}
 }
 
 // ---------------------------------------------------------------------------

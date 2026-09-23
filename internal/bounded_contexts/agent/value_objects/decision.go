@@ -87,6 +87,16 @@ func ParseDecision(text string) analysis_vo.Decision {
 	return d.Normalized()
 }
 
+// ClaimOf 截取一段报告的核心论点，用于决策链上「这一环说了什么」的一句话概括。
+//
+// 复用 firstSentence 而不是另写一个提取器：报告的第一句本来就是结论句
+// （提示词要求每位成员开门见山），再发明一套「找结论段」的启发式规则，
+// 只会得到第二套需要跟着提示词一起维护的解析逻辑。
+// 先剥掉结构化决策块，免得风控经理的论点变成「动作: 买入」这种键值行。
+func ClaimOf(text string) string {
+	return firstSentence(stripDecisionBlock(text))
+}
+
 // preferBlock 在做关键词兜底时优先只看结构化块：
 // 报告正文里必然充斥着「如果跌破就卖出」这类假设句，
 // 拿全文去匹配关键词很容易把假设当成结论。块里没有动作时才退回全文。

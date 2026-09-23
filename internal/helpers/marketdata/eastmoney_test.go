@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 func newTestEastmoney(srv *httptest.Server) *EastmoneyProvider {
 	p := NewEastmoneyProvider(srv.Client(), 0, 0)
 	for m := range p.spotHosts {
-		p.spotHosts[m] = srv.URL
+		p.spotHosts[m] = []string{srv.URL}
 	}
 	p.klineHost = srv.URL
 	return p
@@ -145,6 +146,64 @@ func TestEastmoneyHandlesMissingNumericPlaceholder(t *testing.T) {
 	}
 	if !quotes[0].Close.IsZero() {
 		t.Fatalf("缺值应降级为 0，实际 %s", quotes[0].Close)
+	}
+}
+
+// TestEastmoneyClistFallsBackToNextHost 钉住主机候选链。
+//
+// 2026-09-23 东财 push2delay 整个集群返回 nginx 502（所有前缀、两个边缘 IP 都是），
+// 而批量行情只有东财这一个源，单主机写死就等于 quotes 同步彻底不可用。
+// 第二档必须在第一档整轮失败后被用上，否则这条链只是摆设。
+func TestEastmoneyClistFallsBackToNextHost(t *testing.T) {
+	var deadHits int
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		deadHits++
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html><head><title>502 Bad Gateway</title></head></html>"))
+	}))
+	defer dead.Close()
+	alive := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		row := spotRowJSON("600519", "贵州茅台", nil)
+		_, _ = w.Write([]byte(clistPage(1, []map[string]any{row})))
+	}))
+	defer alive.Close()
+
+	p := newTestEastmoney(alive)
+	p.spotHosts[shared_vo.MarketCN] = []string{dead.URL, alive.URL}
+
+	quotes, err := p.FetchQuotes(context.Background(), shared_vo.MarketCN)
+	if err != nil {
+		t.Fatalf("第一档挂了就该换下一档，实际失败: %v", err)
+	}
+	if len(quotes) != 1 {
+		t.Fatalf("得到 %d 条，期望 1 条", len(quotes))
+	}
+	if deadHits == 0 {
+		t.Fatal("第一档一次都没被试过，顺序反了")
+	}
+}
+
+// TestEastmoneyClistFailsWhenAllHostsDown 全挂时必须报错并点名每一档。
+//
+// 「没有一档能用」和「某一档挂了」的处置完全不同：前者要么等对端恢复、要么换源，
+// 而错误里不带主机名的话，运维只会看到两条一模一样的 502。
+func TestEastmoneyClistFailsWhenAllHostsDown(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer dead.Close()
+
+	p := newTestEastmoney(dead)
+	p.spotHosts[shared_vo.MarketCN] = []string{dead.URL + "/a", dead.URL + "/b"}
+
+	_, err := p.FetchQuotes(context.Background(), shared_vo.MarketCN)
+	if err == nil {
+		t.Fatal("全部候选主机都挂了必须报错")
+	}
+	for _, want := range []string{dead.URL + "/a", dead.URL + "/b"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误里没提到候选主机 %s: %v", want, err)
+		}
 	}
 }
 

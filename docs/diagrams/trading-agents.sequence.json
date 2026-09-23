@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "分析任务端到端路径追踪",
+    "locale": "zh-CN",
+    "output": "trading-agents.sequence.html",
+    "viewBox": [
+      1700,
+      712
+    ],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "sync-accept",
+        "label": "同步受理",
+        "focus": [
+          "client",
+          "api",
+          "redis",
+          "mysql",
+          "mq"
+        ],
+        "note": "槽位先于落库获取，任一步失败都回滚槽位，HTTP 在派发后立刻返回。"
+      },
+      {
+        "id": "async-run",
+        "label": "异步执行",
+        "focus": [
+          "mq",
+          "worker",
+          "engine",
+          "llm",
+          "mongo"
+        ],
+        "note": "Worker 原子认领任务，Engine 带 25 分钟 deadline 驱动 14 个 agent。"
+      },
+      {
+        "id": "observe",
+        "label": "进度观测",
+        "focus": [
+          "client",
+          "api",
+          "redis"
+        ],
+        "note": "SSE 读 Redis 进度频道，与 MySQL 的权威状态读取是两条独立路径。"
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "Client"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "AnalysisService"
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis"
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL"
+    },
+    {
+      "id": "mq",
+      "type": "messagebus",
+      "label": "RabbitMQ"
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "WorkerService"
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Agent Engine"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM Provider"
+    },
+    {
+      "id": "mongo",
+      "type": "database",
+      "label": "MongoDB"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 304,
+      "label": "同步受理 · ~10-100ms"
+    },
+    {
+      "from": 310,
+      "to": 556,
+      "label": "异步执行 · 分钟级"
+    },
+    {
+      "from": 562,
+      "to": 654,
+      "label": "进度观测 · SSE"
+    }
+  ],
+  "messages": [
+    {
+      "id": "post-task",
+      "from": "client",
+      "to": "api",
+      "y": 180,
+      "label": "POST /api/v1/analysis/tasks",
+      "variant": "emphasis"
+    },
+    {
+      "id": "acquire",
+      "from": "api",
+      "to": "redis",
+      "y": 208,
+      "label": "guard.Acquire 并发槽位",
+      "variant": "security",
+      "note": "拿不到直接 429，不落库"
+    },
+    {
+      "id": "save",
+      "from": "api",
+      "to": "mysql",
+      "y": 236,
+      "label": "Save status=queued"
+    },
+    {
+      "id": "dispatch",
+      "from": "api",
+      "to": "mq",
+      "y": 264,
+      "label": "Dispatch analysis.dispatch",
+      "variant": "dashed"
+    },
+    {
+      "id": "accepted",
+      "from": "api",
+      "to": "client",
+      "y": 292,
+      "label": "200 {id, status:queued}",
+      "variant": "return"
+    },
+    {
+      "id": "consume",
+      "from": "mq",
+      "to": "worker",
+      "y": 320,
+      "label": "consume · at-least-once",
+      "variant": "dashed"
+    },
+    {
+      "id": "claim",
+      "from": "worker",
+      "to": "mysql",
+      "y": 348,
+      "label": "ClaimTask 原子 UPDATE",
+      "variant": "emphasis",
+      "note": "重投递时只有一个消费者胜出"
+    },
+    {
+      "id": "run",
+      "from": "worker",
+      "to": "engine",
+      "y": 376,
+      "label": "Engine.Run · 25min deadline",
+      "variant": "emphasis"
+    },
+    {
+      "id": "collect",
+      "from": "engine",
+      "to": "mongo",
+      "y": 404,
+      "label": "collect 行情 · 4 路并行"
+    },
+    {
+      "id": "act",
+      "from": "engine",
+      "to": "llm",
+      "y": 432,
+      "label": "Agent.Act ×14 · tool-use 循环"
+    },
+    {
+      "id": "verdict",
+      "from": "llm",
+      "to": "engine",
+      "y": 460,
+      "label": "决策 / 各阶段报告",
+      "variant": "return"
+    },
+    {
+      "id": "progress",
+      "from": "worker",
+      "to": "redis",
+      "y": 488,
+      "label": "pushProgress 步骤快照",
+      "variant": "dashed"
+    },
+    {
+      "id": "trace",
+      "from": "engine",
+      "to": "mongo",
+      "y": 516,
+      "label": "保存 run trace"
+    },
+    {
+      "id": "complete",
+      "from": "worker",
+      "to": "mysql",
+      "y": 544,
+      "label": "Complete status=completed"
+    },
+    {
+      "id": "sse-open",
+      "from": "client",
+      "to": "api",
+      "y": 572,
+      "label": "GET /tasks/{id}/progress"
+    },
+    {
+      "id": "subscribe",
+      "from": "api",
+      "to": "redis",
+      "y": 600,
+      "label": "订阅进度频道"
+    },
+    {
+      "id": "sse-frame",
+      "from": "api",
+      "to": "client",
+      "y": 628,
+      "label": "event: progress ×N",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "api",
+      "from": 174,
+      "to": 298,
+      "type": "backend"
+    },
+    {
+      "participant": "worker",
+      "from": 314,
+      "to": 550,
+      "type": "backend"
+    },
+    {
+      "participant": "engine",
+      "from": 370,
+      "to": 522,
+      "type": "backend"
+    },
+    {
+      "participant": "llm",
+      "from": 426,
+      "to": 466,
+      "type": "external"
+    },
+    {
+      "participant": "api",
+      "from": 566,
+      "to": 634,
+      "type": "backend"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "同步边界在第 4 跳",
+      "items": [
+        "槽位先于落库获取，任一步失败都回滚槽位",
+        "HTTP 在派发成功后立刻返回，defer 里归还槽位"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "幂等与超时",
+      "items": [
+        "ClaimTask 用原子 UPDATE 吸收重复投递",
+        "Engine.Run 带 25 分钟 deadline，失败按 Retryable 重新入队"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "两条观测路径",
+      "items": [
+        "SSE 读 Redis 进度频道，20 秒一次 keep-alive",
+        "轮询 GET /tasks/{id} 读 MySQL 权威状态"
+      ]
+    }
+  ]
+}

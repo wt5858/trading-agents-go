@@ -35,6 +35,7 @@ type AnalysisService struct {
 	dispatcher *repositories.TaskDispatcher
 	progress   *repositories.ProgressPublisher
 	guard      *repositories.ConcurrencyGuard
+	chains     DecisionChainReader
 	publisher  domain_event.Publisher
 	policy     Policy
 }
@@ -44,6 +45,7 @@ func NewAnalysisService(
 	dispatcher *repositories.TaskDispatcher,
 	progress *repositories.ProgressPublisher,
 	guard *repositories.ConcurrencyGuard,
+	chains DecisionChainReader,
 	publisher domain_event.Publisher,
 	policy Policy,
 ) *AnalysisService {
@@ -52,7 +54,7 @@ func NewAnalysisService(
 	}
 	return &AnalysisService{
 		tasks: tasks, dispatcher: dispatcher, progress: progress,
-		guard: guard, publisher: publisher, policy: policy.normalized(),
+		guard: guard, chains: chains, publisher: publisher, policy: policy.normalized(),
 	}
 }
 
@@ -138,6 +140,24 @@ func (s *AnalysisService) GetResult(ctx context.Context, op Operator, taskID str
 			taskID, task.Status.DisplayName())
 	}
 	return task.Result, nil
+}
+
+// GetDecisionChain 取一次分析的决策链：谁按什么顺序说了什么、终裁基于什么理由。
+//
+// 归属校验走 GetTask，与结果查询同一条规则——决策链里有完整的报告正文，
+// 它的可见性不该比结果本身宽。
+//
+// 任务存在但轨迹不存在是正常情况而不是故障：轨迹是这次改动之后才开始记的，
+// 在那之前跑完的任务只有结果没有过程。这种情况由仓储回 NotFound，原样透出去。
+func (s *AnalysisService) GetDecisionChain(ctx context.Context, op Operator, taskID string) (*value_objects.DecisionChain, error) {
+	task, err := s.GetTask(ctx, op, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if s.chains == nil {
+		return nil, custom_errors.Unavailable("决策链功能不可用")
+	}
+	return s.chains.DecisionChain(ctx, task.ID)
 }
 
 // Cancel 取消任务。

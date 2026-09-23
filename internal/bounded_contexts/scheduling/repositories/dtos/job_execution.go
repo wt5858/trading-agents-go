@@ -25,8 +25,12 @@ type JobExecutionDto struct {
 
 	// idx_exec_job 支撑「某任务的执行历史，按时间倒序分页」这条唯一的列表查询。
 	// (job_id, started_at) 让过滤和排序都走索引。
-	JobID     string    `gorm:"column:job_id;type:varchar(40);not null;index:idx_exec_job,priority:1;uniqueIndex:uk_exec_occurrence,priority:1"`
-	StartedAt time.Time `gorm:"column:started_at;type:datetime(3);not null;index:idx_exec_job,priority:2;index:idx_exec_started_at"`
+	JobID string `gorm:"column:job_id;type:varchar(40);not null;index:idx_exec_job,priority:1;uniqueIndex:uk_exec_occurrence,priority:1"`
+	// idx_exec_running (status, started_at) 是 idx_exec_pending 的另一半。
+	// ListStale 的条件是两支 OR：queued 看 queued_at，running 看 started_at。
+	// 只给前一支建索引的话，MySQL 凑不出 index merge，整条查询退回全表扫描——
+	// 而这是库里最大的表。两支各有所依，union 才成立。
+	StartedAt time.Time `gorm:"column:started_at;type:datetime(3);not null;index:idx_exec_job,priority:2;index:idx_exec_started_at;index:idx_exec_running,priority:2"`
 
 	// idx_exec_started_at 单列索引专供 PurgeOlderThan：
 	// 保留期清理是 `DELETE WHERE started_at < ?`，不带 job_id，
@@ -48,7 +52,7 @@ type JobExecutionDto struct {
 
 	Attempt int `gorm:"column:attempt;not null;default:1;uniqueIndex:uk_exec_occurrence,priority:3"`
 
-	Status    string `gorm:"column:status;type:varchar(16);not null;index:idx_exec_pending,priority:1"`
+	Status    string `gorm:"column:status;type:varchar(16);not null;index:idx_exec_pending,priority:1;index:idx_exec_running,priority:1"`
 	Summary   string `gorm:"column:summary;type:varchar(512);not null;default:''"`
 	ItemCount int    `gorm:"column:item_count;not null;default:0"`
 	Error     string `gorm:"column:error;type:varchar(512);not null;default:''"`

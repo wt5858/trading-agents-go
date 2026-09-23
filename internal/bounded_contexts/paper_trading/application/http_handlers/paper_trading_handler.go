@@ -100,7 +100,7 @@ func (h *PaperTradingHandler) OpenAccount(c *gin.Context) {
 	}
 	var req openAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	account, err := h.service.OpenAccount(c.Request.Context(), op, domain_services.OpenAccountInput{
@@ -217,7 +217,7 @@ func (h *PaperTradingHandler) PlaceOrder(c *gin.Context) {
 	}
 	var req placeOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	trade, err := h.service.PlaceOrder(c.Request.Context(), op, domain_services.PlaceOrderInput{

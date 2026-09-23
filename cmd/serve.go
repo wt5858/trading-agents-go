@@ -36,7 +36,14 @@ var ServeCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			if err := userService.EnsureBootstrapAdmin(ctx,
+			// 没配口令就不建号。这不是降级，是唯一安全的默认行为：自动创建一个
+			// 口令来自默认值的管理员，等于在每一个「忘了配」的部署上开一个后门。
+			// 代价是空库首次启动必须显式给 TA_AUTH_BOOTSTRAP_ADMIN_PASSWORD，
+			// 这条 Warn 就是告诉运维该配什么。
+			if cfg.Auth.BootstrapAdminPassword == "" {
+				log.Warn("未配置 auth.bootstrap_admin_password，跳过初始管理员创建",
+					zap.String("hint", "空库首次启动请设置 TA_AUTH_BOOTSTRAP_ADMIN_PASSWORD"))
+			} else if err := userService.EnsureBootstrapAdmin(ctx,
 				cfg.Auth.BootstrapAdmin, cfg.Auth.BootstrapAdminPassword); err != nil {
 				return fmt.Errorf("初始化管理员账号失败: %w", err)
 			}

@@ -190,12 +190,36 @@ type (
 	LLMHTTPClient    *http.Client
 )
 
+// 两个客户端都必须自带 Transport。
+//
+// Transport 留空会落到 http.DefaultTransport，而它的 MaxIdleConnsPerHost 是 **2**。
+// 这个默认值是给「偶尔调一下别人接口」的程序准备的，不是给我们这种形态：
+// 分析任务全局并发 20，每个任务内部分析师再扇出 3 路，几十个请求同时打向**同一个**
+// 大模型域名，而连接池只肯留 2 条空闲连接——剩下的每次用完即关，于是几乎每一次
+// 模型调用都要重新握一次 TCP + TLS。在跨境链路上这笔握手开销比请求本身还显眼，
+// 而且它不表现为报错，只表现为「分析怎么越来越慢」。行情同步扇出 8 路，同理。
+//
+// 另外，DefaultTransport 是全进程共享的：两个客户端都用它，等于行情和大模型在抢
+// 同一个池子，一边的突发会把另一边的空闲连接挤掉。各持一个副本就没有这回事。
+//
+// 刻意不设 ResponseHeaderTimeout：非流式的模型请求，部分网关要等整段生成完才吐
+// 响应头，设了它等于给生成时间加了一个隐形上限，而超时的表现会是「长回答必失败」。
+// 单次请求的总时长已经由 Client.Timeout 管着。
+func newPooledTransport(maxPerHost int) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = maxPerHost
+	t.MaxIdleConns = maxPerHost * 2
+	return t
+}
+
 func NewMarketHTTPClient(cfg *config.Config) MarketHTTPClient {
-	return &http.Client{Timeout: cfg.Market.Timeout}
+	// 行情侧的并发上限是同步扇出（SyncFanOutLimit=8），留一倍余量。
+	return &http.Client{Timeout: cfg.Market.Timeout, Transport: newPooledTransport(16)}
 }
 
 func NewLLMHTTPClient(cfg *config.Config) LLMHTTPClient {
-	return &http.Client{Timeout: cfg.LLM.Timeout}
+	// 大模型侧按 全局并发 20 × 分析师扇出 3 估算，取 64 覆盖峰值。
+	return &http.Client{Timeout: cfg.LLM.Timeout, Transport: newPooledTransport(64)}
 }
 
 // InfraSet 是每个入口点都需要的底座。

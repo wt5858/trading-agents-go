@@ -31,8 +31,6 @@ func NewScreeningTemplateRepository(db *gorm.DB) *ScreeningTemplateRepository {
 	return &ScreeningTemplateRepository{db: db}
 }
 
-func (repo *ScreeningTemplateRepository) GetDb() *gorm.DB { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 写入：整聚合保存
 // ---------------------------------------------------------------------------

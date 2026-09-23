@@ -31,7 +31,10 @@ type BatchDto struct {
 	Version int64 `gorm:"column:version;not null;default:0"`
 
 	CreatedAt time.Time `gorm:"column:created_at;type:datetime(3);not null;index:idx_batches_user,priority:2;autoCreateTime:false"`
-	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime(3);not null;autoUpdateTime:false"`
+	// idx_batches_stale 专供滞留巡检（WHERE updated_at < ? ORDER BY updated_at ASC）。
+	// 另一半条件 completed + failed < total 是列间比较，走不了索引，只能当后置过滤——
+	// 时间窗已经把候选集压得很小，够用。
+	UpdatedAt time.Time `gorm:"column:updated_at;type:datetime(3);not null;autoUpdateTime:false;index:idx_batches_stale"`
 }
 
 func (BatchDto) TableName() string { return "analysis_batches" }

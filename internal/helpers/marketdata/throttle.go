@@ -1,15 +1,16 @@
 package marketdata
 
 import (
-	"errors"
+	"context"
 	"io"
 	"math/rand"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/wt5858/trading-agents-go/internal/helpers/httpx"
 )
 
 // ---------------------------------------------------------------------------
@@ -46,8 +47,13 @@ type throttleTransport struct {
 	maxAttempts int
 	// backoff 是第一次重试前的基准等待，之后按 2 的幂次递增。
 	backoff time.Duration
-	// sleep 抽出来只为测试能跑快，生产恒为 time.Sleep。
-	sleep func(time.Duration)
+	// sleep 抽出来只为测试能跑快，生产恒为 sleepCtx。
+	//
+	// 它必须收 ctx 并在取消时立刻返回：退避一等就是秒级（基准 800ms，
+	// 三次重试叠加抖动最长 ~3.2s），期间 ctx 被取消却察觉不到的话，
+	// 有界扇出里每个在退避中的 worker 都会把停机拖慢这么久——
+	// 而上面 limiter.Wait 那句注释承诺的正是「取消能及时传播」。
+	sleep func(context.Context, time.Duration) error
 	// jitter 返回 [0,1) 的随机数，同样只为测试可控。
 	jitter func() float64
 }
@@ -97,12 +103,9 @@ func (t *throttleTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		// 同一次封禁，不抖动的话它们会整整齐齐地一起醒来再撞一次。
 		wait := t.backoff << (attempt - 1)
 		wait += time.Duration(t.jitter() * float64(wait))
-		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
-		default:
+		if err := t.sleep(req.Context(), wait); err != nil {
+			return nil, err
 		}
-		t.sleep(wait)
 	}
 	return nil, lastErr
 }
@@ -130,30 +133,25 @@ func rewindBody(req *http.Request) bool {
 	return true
 }
 
+// sleepCtx 等满 d，但 ctx 一取消就立刻返回它的错误。
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // isRetriableOutbound 判断这个传输层错误值不值得重试。
 //
-// 只认「连接被对端掐断」这一类：东财限流的表现就是连接直接关掉，
-// Go 侧拿到的是 io.EOF / io.ErrUnexpectedEOF，或者 syscall 的 ECONNRESET
-// 被包成字符串。这些重试有意义。
-//
-// 刻意不重试 DNS 解析失败、证书错误、连接被拒这类问题：它们重试一百次也是一样的结果，
-// 只会把一次快速失败拖成几十秒。ctx 取消更不能重试——那是调用方明确要求停下来。
+// 判据本身搬去了 httpx——LLM 那边也要用同一套，两份迟早分叉。东财限流的表现
+// （连接直接掐掉，Go 侧看到 EOF / ECONNRESET）正是那边收的那一类，所以这里
+// 不需要任何补充，留这层薄壳只为保住本包内的命名。
 func isRetriableOutbound(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return true
-	}
-	// net.OpError 里的 ECONNRESET 在各平台上的具体类型不统一，退一步按文本判断。
-	// 匹配的是 Go 标准库自己产生的固定措辞，不是上游报文，所以不怕对方改文案。
-	msg := strings.ToLower(err.Error())
-	for _, s := range []string{"connection reset by peer", "unexpected eof", "server closed idle connection"} {
-		if strings.Contains(msg, s) {
-			return true
-		}
-	}
-	return false
+	return httpx.IsRetriableOutbound(err)
 }
 
 // drainLimit 是重试前最多读多少响应体。
@@ -231,7 +229,7 @@ func ensureThrottledHTTPClient(hc *http.Client, provider string, rps float64, bu
 		limiter:     rate.NewLimiter(rate.Limit(rps), burst),
 		maxAttempts: throttleMaxAttempts,
 		backoff:     throttleBackoff,
-		sleep:       time.Sleep,
+		sleep:       sleepCtx,
 		//nolint:gosec // 抖动只是打散重试时刻，不需要密码学随机
 		jitter: rand.Float64,
 	}

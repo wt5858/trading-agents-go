@@ -62,7 +62,7 @@ type tokenResponse struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 
@@ -93,7 +93,7 @@ type refreshRequest struct {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	result, err := h.authService.Refresh(c.Request.Context(), req.RefreshToken)

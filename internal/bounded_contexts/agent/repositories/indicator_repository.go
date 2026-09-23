@@ -38,8 +38,6 @@ func NewIndicatorRepository(db *mongo.Database) *IndicatorRepository {
 	return &IndicatorRepository{db: db}
 }
 
-func (repo *IndicatorRepository) GetDb() *mongo.Database { return repo.db }
-
 // EnsureIndexes 幂等建索引，可在每次启动时调用。
 //
 // 唯一索引建在自然键 (symbol, period, trade_date) 上，它承担两个职责：

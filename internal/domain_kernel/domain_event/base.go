@@ -55,6 +55,15 @@ func (r *EventRecorder) GetAllPendingEvents() []DomainEvent {
 
 func (r *EventRecorder) HasPendingEvents() bool { return len(r.pending) > 0 }
 
+// PendingEvents exposes the recorded events **without draining them**.
+//
+// This is not the publish path — use GetAllPendingEvents for that, precisely because
+// draining is what guarantees an event is never published twice. This one exists for
+// the aggregate itself to patch an event it could not fully populate when it was raised
+// (identity's OnUserRegistered carries an auto-increment id that does not exist until
+// after the insert). Reach for it only from inside the aggregate that owns the events.
+func (r *EventRecorder) PendingEvents() []DomainEvent { return r.pending }
+
 // Publisher dispatches domain events. Implemented by AmqpBus in every real deployment;
 // domain_services only ever see this interface, which is what lets them be tested
 // without a broker.

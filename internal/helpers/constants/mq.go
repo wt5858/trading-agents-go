@@ -58,6 +58,17 @@ const (
 // 那一侧是 broker 的配置，没法从 Go 这边设置，只能靠两边注释互指。
 const AnalysisMaxRuntime = 30 * time.Minute
 
+// AnalysisRunDeadline 是引擎真正拿到的 deadline（见 WorkerService.runEngine）。
+//
+// 它比 AnalysisMaxRuntime 早一点，是为了在上面那张表里排出确定的先后：
+// 领域先到（引擎自己停下、任务正常落成失败、消息被 ack），broker 其次，
+// 巡检最后。三者同时到会让最常见的超时走上最难看的一条路——ack 撞上
+// broker 收回信道、消费者重连、消息重投，最后靠 ClaimTask 认领失败才收场。
+//
+// 余量取 1 分钟：够收尾（finishFailed 落库的 detach 超时是 10 秒），
+// 又不会明显压缩真正能用来分析的时间。
+const AnalysisRunDeadline = AnalysisMaxRuntime - time.Minute
+
 // 分析任务派发走的队列与路由键。
 //
 // 它与定时任务分开，理由和定时任务与领域事件分开是同一条：处理时长差一个数量级。

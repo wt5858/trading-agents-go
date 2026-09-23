@@ -9,12 +9,14 @@
 //   - context propagation (each unit of work receives a derived context)
 //   - error aggregation (nothing is silently swallowed)
 //   - prompt cancellation (parent cancellation stops queued work immediately)
+//   - panic containment (a panicking item fails that item, not the process — see invoke)
 package concurrency
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 )
 
@@ -106,7 +108,21 @@ func Settle[T, R any](ctx context.Context, items []T, limit int, fn func(context
 	}
 
 	outcomes := run(ctx, items, limit, fn, nil)
+
+	// 先把每个槽位填成「没派发出去」，再用真实结果覆盖。
+	//
+	// 不预填的话，被取消打断的那次运行会留下一批零值 Outcome：Err 是 nil、
+	// Value 是零值，于是 OK() 对**从未执行过**的工作返回 true。今天所有调用方
+	// 都先检查返回的 err 再碰 outcomes，所以没坏；但这是个安静的陷阱，
+	// 而它恰好藏在一个以「什么都不会被静默吞掉」为卖点的包里。
+	notRun := context.Cause(ctx)
+	if notRun == nil {
+		notRun = errors.New("concurrency: 该任务未被派发")
+	}
 	ordered := make([]Outcome[R], len(items))
+	for i := range ordered {
+		ordered[i] = Outcome[R]{Index: i, Err: notRun}
+	}
 	for _, o := range outcomes {
 		ordered[o.Index] = o
 	}
@@ -171,7 +187,7 @@ func run[T, R any](
 					continue
 				}
 
-				value, err := fn(ctx, j.item)
+				value, err := invoke(ctx, fn, j.item)
 
 				mu.Lock()
 				outcomes = append(outcomes, Outcome[R]{Index: j.index, Value: value, Err: err})
@@ -198,6 +214,34 @@ producer:
 	wg.Wait()
 
 	return outcomes
+}
+
+// invoke runs one unit of work and turns a panic into that item's error.
+//
+// The panic has to be caught here, and nowhere else. A worker goroutine's panic is not
+// the caller's panic: it unwinds a stack the caller cannot see and takes the whole
+// process with it. The AMQP layer and the domain-event bus each recover on their own
+// goroutine, but every consumer path that fans out — the analyst stage, the tool round,
+// the market-data sync — escapes that protection the moment it enters this pool. Without
+// this recover, one nil-map write in a single analyst kills the worker process and drops
+// every other in-flight, unacked delivery along with it.
+//
+// Containing it as an Outcome error is the right blast radius: Settle already treats a
+// failed item as a normal outcome (that is its entire purpose), and Map already fails
+// fast on the first error. A panicking item is just an item that failed.
+//
+// The panic value goes into the error rather than being logged and swallowed — callers
+// already report per-item errors, and a swallowed panic is how a reproducible crash turns
+// into an unreproducible "sometimes the analysis comes back empty".
+func invoke[T, R any](ctx context.Context, fn func(context.Context, T) (R, error), item T) (value R, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			var zero R
+			value = zero
+			err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return fn(ctx, item)
 }
 
 // normalizeLimit clamps the worker count to something sane: never more workers than

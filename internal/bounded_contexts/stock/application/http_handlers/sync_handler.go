@@ -64,7 +64,7 @@ func (h *SyncHandler) Trigger(c *gin.Context) {
 	}
 	var req triggerSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	run, err := h.syncService.Trigger(c.Request.Context(), &op, req.Kind, req.Market)

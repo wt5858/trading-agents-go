@@ -50,8 +50,16 @@ func newTestThrottle(base http.RoundTripper, attempts int) (*throttleTransport, 
 		limiter:     rate.NewLimiter(rate.Inf, 1),
 		maxAttempts: attempts,
 		backoff:     100 * time.Millisecond,
-		sleep:       func(d time.Duration) { slept = append(slept, d) },
-		jitter:      func() float64 { return 0 },
+		// 不真睡，只记录等了多久；但取消仍要如实反映，否则「退避期间被取消」
+		// 这条路径在测试里就永远走不到。
+		sleep: func(ctx context.Context, d time.Duration) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			slept = append(slept, d)
+			return nil
+		},
+		jitter: func() float64 { return 0 },
 	}, &slept
 }
 

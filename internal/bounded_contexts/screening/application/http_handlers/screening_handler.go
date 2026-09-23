@@ -161,7 +161,7 @@ func (h *ScreeningHandler) Run(c *gin.Context) {
 	}
 	var req runRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	result, err := h.screeningService.Execute(c.Request.Context(), op, domain_services.ScreenInput{
@@ -260,7 +260,7 @@ func (h *ScreeningHandler) CreateTemplate(c *gin.Context) {
 	}
 	var req templateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	t, err := h.screeningService.CreateTemplate(c.Request.Context(), op, req.toInput())
@@ -305,7 +305,7 @@ func (h *ScreeningHandler) UpdateTemplate(c *gin.Context) {
 	}
 	var req templateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	t, err := h.screeningService.UpdateTemplate(c.Request.Context(), op, templateID, req.toInput())

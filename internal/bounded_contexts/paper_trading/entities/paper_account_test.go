@@ -300,22 +300,61 @@ func TestStoredTradeAmountIsNeverRecomputed(t *testing.T) {
 // 与 stock 上下文 RehydrateSyncStats 不重算成功率是同一条纪律：
 // 存量值才是当时的事实，用 CostBasis / Quantity 现除一遍会得到一个
 // 略微不同的数，于是同一笔持仓在不同代码路径上算出不同的已实现盈亏。
+//
+// # 两个存量值打架时听谁的
+//
+// 本用例刻意构造 AvgCost × Quantity (99.9) ≠ CostBasis (100) 的持仓，
+// 于是「按 AvgCost 算盈亏」和「按 CostBasis 算盈亏」会给出不同答案。
+// 部分卖出与全平的选择不一样，而且都只有一个选项是对的：
+//
+//   - 部分卖出听 AvgCost。剩余持仓的单位成本不能因为一次卖出而改变，
+//     所以释放多少成本只能按落库的单位成本等比算，残差留在 CostBasis 里。
+//   - 全平听 CostBasis。CostBasis 是真金白银流出去的那个数，而全平之后
+//     整行持仓被移除，按 AvgCost 释放会让那 0.1 的残差凭空消失——账上
+//     现金增加了 120、成本认了 99.9，于是账本永远差 0.1。
+//
+// 换句话说，纪律是「不重算」，不是「一律听 AvgCost」：两个数都是存量值，
+// 全平时该认的存量值是 CostBasis。
 func TestRehydratePositionKeepsStoredAvgCost(t *testing.T) {
 	code := mustCode(t, "AAPL")
 	// 故意让 costBasis / quantity = 33.3333…，与落库的 33.3000 不等。
-	pos := RehydratePosition(code, dec(t, "3"), dec(t, "33.3000"), dec(t, "100"), time.Now(), time.Now())
-	assertDec(t, pos.AvgCost, "33.3000", "读回的平均成本必须是存量值")
-
-	a := mustAccount(t, "100000")
-	a.Positions = []*Position{pos}
-
-	// 卖出必须用存量的 33.3000 计算：(40 − 33.3) × 3 = 20.1。
-	// 若改用 100/3 = 33.3333… 重算，结果会是 20.0001，与库里的成本对不上。
-	sell, err := a.Sell(code, dec(t, "3"), dec(t, "40"), decimal.Zero)
-	if err != nil {
-		t.Fatalf("卖出失败: %v", err)
+	newPos := func() *Position {
+		return RehydratePosition(code, dec(t, "3"), dec(t, "33.3000"), dec(t, "100"), time.Now(), time.Now())
 	}
-	assertDec(t, sell.RealizedPnL, "20.1", "已实现盈亏必须基于落库的平均成本")
+	assertDec(t, newPos().AvgCost, "33.3000", "读回的平均成本必须是存量值")
+
+	// 部分卖出：用存量的 33.3000，而不是 100/3 = 33.3333… 重算。
+	// (40 − 33.3) × 1 = 6.7；重算的话会得到 6.6667。
+	a := mustAccount(t, "100000")
+	a.Positions = []*Position{newPos()}
+	sell, err := a.Sell(code, dec(t, "1"), dec(t, "40"), decimal.Zero)
+	if err != nil {
+		t.Fatalf("部分卖出失败: %v", err)
+	}
+	assertDec(t, sell.RealizedPnL, "6.7", "部分卖出的盈亏必须基于落库的平均成本")
+	rest := a.PositionOf(code)
+	assertDec(t, rest.AvgCost, "33.3000", "部分卖出不改变剩余持仓的单位成本")
+	assertDec(t, rest.CostBasis, "66.7", "成本基数按落库的单位成本等比释放")
+
+	// 全平：认 CostBasis，盈亏 = 120 − 100 = 20，与现金变动精确对平。
+	// 若这里改回 (40 − 33.3) × 3 = 20.1，那 0.1 会随持仓行一起被删掉。
+	b := mustAccount(t, "100000")
+	b.Positions = []*Position{newPos()}
+	cashBefore := b.Cash
+	closing, err := b.Sell(code, dec(t, "3"), dec(t, "40"), decimal.Zero)
+	if err != nil {
+		t.Fatalf("全平失败: %v", err)
+	}
+	assertDec(t, closing.RealizedPnL, "20", "全平的盈亏必须基于落库的成本基数")
+	if len(b.Positions) != 0 {
+		t.Fatalf("全平后不应留下持仓，实际 %d", len(b.Positions))
+	}
+	// 收到的现金减去当初认下的成本，必须恰好等于记账的盈亏。
+	gained := b.Cash.Sub(cashBefore)
+	if !gained.Sub(dec(t, "100")).Equal(closing.RealizedPnL) {
+		t.Errorf("盈亏与现金变动对不上：现金 +%s，成本基数 100，记账盈亏 %s",
+			gained, closing.RealizedPnL)
+	}
 }
 
 // TestResetRestoresInitialState 验证重置把账户恢复到开户状态，

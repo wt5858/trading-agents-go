@@ -3,9 +3,12 @@
 package response
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
 )
@@ -65,6 +68,43 @@ func Fail(c *gin.Context, err error) {
 		Message: custom_errors.MessageOf(err),
 		Data:    nil,
 	})
+}
+
+// FailBind turns a ShouldBind* error into a client-safe InvalidArgument error.
+//
+// # Why this exists instead of `Invalid("请求参数不合法: %v", err)`
+//
+// go-playground/validator's Error() reads
+//
+//	Key: 'loginRequest.Password' Error:Field validation for 'Password' failed on the 'required' tag
+//
+// and MessageOf hands a domain error's Message to the wire verbatim. So that one `%v`
+// published our internal struct names — the request type, its field layout, the
+// validation tags in use — on every malformed request. It is the one place the
+// otherwise careful redaction in MessageOf is bypassed by construction, and it was
+// copy-pasted across twenty-odd handlers.
+//
+// What goes out now is the offending field names and nothing else: enough for a client
+// to fix its request, nothing about how the server is put together. A non-validator
+// bind failure (malformed JSON, wrong type) carries no field list at all, because its
+// message is the decoder's and we do not control what it contains.
+//
+// The full error stays available to the caller if it wants to log it; it just never
+// reaches the response body.
+func FailBind(c *gin.Context, err error) {
+	Fail(c, bindError(err))
+}
+
+func bindError(err error) error {
+	var ve validator.ValidationErrors
+	if errors.As(err, &ve) && len(ve) > 0 {
+		fields := make([]string, 0, len(ve))
+		for _, fe := range ve {
+			fields = append(fields, fe.Field())
+		}
+		return custom_errors.Invalid("请求参数不合法：%s", strings.Join(fields, "、")).Wrap(err)
+	}
+	return custom_errors.Invalid("请求参数不合法").Wrap(err)
 }
 
 // FailWith writes an explicit code and message, for cases with no underlying error.

@@ -177,10 +177,9 @@ func (a *PaperAccount) Buy(code shared_vo.StockCode, quantity, price, fee decima
 // 与 Buy 同理，「持仓够不够」和「减多少」是同一个方法里的同一件事，
 // 不存在 CanSell() 这种给 TOCTOU 开门的接口。
 //
-// 已实现盈亏 = (卖价 − **落库的**平均成本) × 数量 − 手续费。
-// 注意算式里的平均成本取的是 pos.AvgCost 这个存量值，不是现场用
-// CostBasis / Quantity 反推出来的——反推会引入取整差异，
-// 于是同一笔卖出在不同代码路径上算出不同的盈亏。
+// 已实现盈亏 = 成交金额 − 释放的成本基数 − 手续费，三项都取自本方法里已经
+// 固化下来的值，没有一项是现场重算的。释放多少成本基数区分部分卖出与全平，
+// 理由写在下面那段注释里——那是这个方法唯一容易写错的地方。
 func (a *PaperAccount) Sell(code shared_vo.StockCode, quantity, price, fee decimal.Decimal) (*Trade, error) {
 	if err := validateOrderInput(code, quantity, price, fee); err != nil {
 		return nil, err
@@ -212,10 +211,27 @@ func (a *PaperAccount) Sell(code shared_vo.StockCode, quantity, price, fee decim
 
 	now := time.Now()
 	proceeds := value_objects.RoundMoney(amount.Sub(fee))
-	// 已实现盈亏：乘除派生量，算一次，写进成交记录并累加进账户。
-	realized := value_objects.RoundMoney(price.Sub(pos.AvgCost).Mul(quantity)).Sub(fee)
-	// 按落库的平均成本等比释放成本基数。
+
+	// 释放多少成本基数，是这段代码里唯一需要小心的事。
+	//
+	// 部分卖出按落库的 AvgCost 等比释放，剩下的留在 CostBasis 里。
+	// 但**全平必须释放 CostBasis 本身**，不能用 AvgCost × 数量：
+	// AvgCost 是 RoundMoney(CostBasis / Quantity)，除不尽时这个乘积和 CostBasis
+	// 差着一个取整残差，而全平之后持仓整行被移除（见下面的 removePosition），
+	// 残差没有任何地方可去，只能凭空消失。
+	//
+	// 它消失的后果不是「差一分钱」，是账本恒等式 Cash == InitialCash + RealizedPnL
+	// 不再成立，而且误差同号累积：买 3 股 @3.3333（CostBasis 10.0000、
+	// AvgCost 3.3333）再全平，一次差 0.0001，一千次往返差 0.1000。
 	releasedCost := value_objects.RoundMoney(pos.AvgCost.Mul(quantity))
+	if !quantity.LessThan(pos.Quantity) {
+		releasedCost = pos.CostBasis
+	}
+
+	// 已实现盈亏 = 成交金额 − 释放的成本 − 手续费，全部取自上面已经固化的那几个数，
+	// 不再用 price × quantity 重算一遍成交金额（amount 就是它，两行之上刚算过）。
+	// 这样盈亏和现金流动用的是同一组数，恒等式按定义成立，而不是靠巧合。
+	realized := value_objects.RoundMoney(amount.Sub(releasedCost)).Sub(fee)
 
 	a.Cash = value_objects.RoundMoney(a.Cash.Add(proceeds))
 	a.RealizedPnL = value_objects.RoundMoney(a.RealizedPnL.Add(realized))

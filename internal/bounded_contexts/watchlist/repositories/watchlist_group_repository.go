@@ -29,8 +29,6 @@ func NewWatchlistGroupRepository(db *gorm.DB) *WatchlistGroupRepository {
 	return &WatchlistGroupRepository{db: db}
 }
 
-func (repo *WatchlistGroupRepository) GetDb() *gorm.DB { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 写入：整聚合保存
 // ---------------------------------------------------------------------------

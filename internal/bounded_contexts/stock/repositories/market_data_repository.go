@@ -41,8 +41,6 @@ func NewMarketDataRepository(db *mongo.Database) *MarketDataRepository {
 	return &MarketDataRepository{db: db}
 }
 
-func (repo *MarketDataRepository) GetDb() *mongo.Database { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 行情快照
 // ---------------------------------------------------------------------------

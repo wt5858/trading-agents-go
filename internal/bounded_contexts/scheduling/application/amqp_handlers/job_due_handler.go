@@ -10,6 +10,7 @@ package amqp_handlers
 
 import (
 	"context"
+	"fmt"
 
 	"go.uber.org/zap"
 
@@ -70,19 +71,20 @@ func (h *JobDueHandler) Register(bus Subscriber) error {
 //
 // 返回 nil 表示确认，返回错误表示请重投。判据只有一句：**重来一次有没有可能成功**。
 //
-//	报文解不开、缺字段   重来一万次也是同样的结果        -> nil
-//	领域层返回错误       下游可能只是临时不可用          -> 错误
+//	报文解不开、缺字段   重来一万次也是同样的结果        -> mq.ErrPoison（进死信）
+//	领域层返回错误       下游可能只是临时不可用          -> 错误（重投）
 //
-// 第一类若返回错误，消息会在重试队列和主队列之间兜圈子直到进死信队列，
-// 除了制造噪音没有任何作用。
+// 第一类若返回普通错误，消息会在重试队列和主队列之间兜圈子直到进死信队列，
+// 除了制造噪音没有任何作用；而直接返回 nil 又会把它删掉。ErrPoison 是第三条路：
+// 不重试，但留在死信队列里可查可重放。
 func (h *JobDueHandler) OnReceivedMessage(ctx context.Context, message string) error {
 	msg, err := value_objects.NewJobDueMessage(message)
 	if err != nil {
 		// 报文本身是坏的。这只可能来自一次不兼容的发布或者手工塞进队列的消息，
-		// 重投解决不了任何问题。
-		h.log.Error("到期任务消息无法解析，已丢弃",
+		// 重投解决不了任何问题——但正因为它指向一次发布事故，原件必须留下。
+		h.log.Error("到期任务消息无法解析，转入死信队列",
 			zap.String("message", message), zap.Error(err))
-		return nil
+		return fmt.Errorf("到期任务消息无法解析: %v: %w", err, mq.ErrPoison)
 	}
 
 	h.log.Debug("收到到期任务消息",

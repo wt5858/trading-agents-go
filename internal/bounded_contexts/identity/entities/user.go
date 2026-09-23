@@ -71,8 +71,32 @@ func Register(
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
+	// UserID 此刻只能填 0：主键是自增的，要等仓储插入之后才存在。
+	// 它由 AssignPersistedID 在回填 ID 时一并补上——那是这条链路上第一个
+	// 知道真实 ID 的地方。
 	u.AddDomainEvent(domain_events.NewOnUserRegistered(0, username.String(), role.String()))
 	return u, nil
+}
+
+// AssignPersistedID 记下数据库分配的主键，并补齐那些在建号时还拿不到 ID 的事件。
+//
+// # 为什么这件事不能留给调用方做
+//
+// 注册事件是在 Register 里记下的，而那时主键还不存在（自增列要插入之后才有值），
+// 于是它带着 UserID: 0 出生。仓储插入后会回填 u.ID，但**事件不会自己跟着变**——
+// 结果是每一个下游消费者都收到 userId=0，而这个错误完全静默：事件发出去了、
+// 处理器也跑了，只是它永远找不到那个用户。
+//
+// 补齐的动作放在这里而不是在领域服务里，是因为「谁知道 ID 了」和「谁负责让聚合
+// 自洽」应当是同一处。领域服务有两个建号入口（CreateUser 与 EnsureBootstrapAdmin），
+// 让它们各自记得补一次，就是等着其中一个忘记。
+func (u *User) AssignPersistedID(id uint64) {
+	u.ID = id
+	for _, e := range u.PendingEvents() {
+		if reg, ok := e.(*domain_events.OnUserRegistered); ok {
+			reg.UserID = id
+		}
+	}
 }
 
 func (u *User) IsAdmin() bool { return u.Role.IsAdmin() }

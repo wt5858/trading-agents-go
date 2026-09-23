@@ -34,8 +34,16 @@ type PaperAccountDto struct {
 	// ID 由领域服务生成：账户要先有稳定标识，持仓与成交才能引用它。
 	ID string `gorm:"column:id;type:varchar(48);primaryKey"`
 	// 用户的账户列表是最热的查询，单列索引即可（单用户账户数是个位数）。
-	UserID uint64 `gorm:"column:user_id;not null;index:idx_paper_accounts_user"`
+	UserID uint64 `gorm:"column:user_id;not null;index:idx_paper_accounts_user;uniqueIndex:uk_paper_accounts_user_seq,priority:1"`
 	Name   string `gorm:"column:name;type:varchar(64);not null;default:''"`
+
+	// Seq 是该用户名下的账户槽位号，纯持久化概念，聚合里没有对应字段。
+	//
+	// 它的唯一职责是把账户数上限变成数据库约束：uk_paper_accounts_user_seq
+	// 保证一个槽位只能被占一次，ck_paper_accounts_seq 保证槽位不超过 10 个。
+	// 没有它，「先数一数再插入」这个 TOCTOU 就永远敞着。
+	// 槽位由仓储在 Create 时分配，调用方看不见也不需要看见。
+	Seq uint8 `gorm:"column:seq;not null;default:0;uniqueIndex:uk_paper_accounts_user_seq,priority:2"`
 
 	InitialCash decimal.Decimal `gorm:"column:initial_cash;type:decimal(20,4);not null"`
 	Cash        decimal.Decimal `gorm:"column:cash;type:decimal(20,4);not null"`

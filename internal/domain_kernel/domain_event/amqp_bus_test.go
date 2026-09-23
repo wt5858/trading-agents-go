@@ -350,15 +350,21 @@ func TestDuplicateHandlerNameIsRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 确认丢弃 vs 上抛重投 —— 判据只有一句：重来一次有没有可能成功
+// 三种收场 —— 第一问「重来一次有没有可能成功」，第二问「不重来的话，删还是留」
+//
+//	能成功       -> 上抛，重投
+//	不能，且是坏报文  -> ErrPoison，不重投但进死信队列（留证据）
+//	不能，且是没订阅  -> nil，确认丢弃（常态，留着只是噪音）
+//
 // ---------------------------------------------------------------------------
 
-func TestDispatchDropsMalformedMessage(t *testing.T) {
-	// 解不开的报文重来一万次也是同样的结果。上抛只会让它在重试队列
-	// 和主队列之间兜圈子直到进死信队列，除了制造噪音没有任何作用。
+func TestDispatchSendsMalformedMessageToDLQ(t *testing.T) {
+	// 解不开的报文重来一万次也是同样的结果，所以不重投；但它多半来自一次
+	// 不兼容的发布，原件必须留下，所以也不能确认删除。
 	bus := NewAmqpBus(&capturingPublisher{}, "exchange.x", "rk", nil)
-	if err := bus.Dispatch(context.Background(), "{ 这不是 JSON"); err != nil {
-		t.Fatalf("无法解析的报文应当被确认丢弃，实际上抛了: %v", err)
+	err := bus.Dispatch(context.Background(), "{ 这不是 JSON")
+	if !errors.Is(err, mq.ErrPoison) {
+		t.Fatalf("无法解析的报文应当判为 ErrPoison 直接进死信，实际: %v", err)
 	}
 }
 
@@ -374,9 +380,9 @@ func TestDispatchDropsUnsubscribedEvent(t *testing.T) {
 	}
 }
 
-func TestDispatchDropsPayloadThatCannotBeRestored(t *testing.T) {
-	// 载荷与注册的类型对不上（通常是上线了新版事件结构而旧消息还在队列里）
-	// 同样是重来也没用的一类，确认丢弃。
+func TestDispatchSendsUnrestorablePayloadToDLQ(t *testing.T) {
+	// 载荷与注册的类型对不上，通常正是「上线了新版事件结构而旧消息还在队列里」。
+	// 重投没用，但这恰恰是最该留证据的一类——订阅了却读不懂，比外层信封坏更值得查。
 	bus := NewAmqpBus(&capturingPublisher{}, "exchange.x", "rk", nil)
 	bus.RegisterSubscriber(func(context.Context, DomainEvent) error {
 		t.Fatal("还原失败时不该调用处理器")
@@ -387,8 +393,8 @@ func TestDispatchDropsPayloadThatCannotBeRestored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bus.Dispatch(context.Background(), string(body)); err != nil {
-		t.Fatalf("无法还原的载荷应当被确认丢弃，实际上抛了: %v", err)
+	if err := bus.Dispatch(context.Background(), string(body)); !errors.Is(err, mq.ErrPoison) {
+		t.Fatalf("无法还原的载荷应当判为 ErrPoison 直接进死信，实际: %v", err)
 	}
 }
 

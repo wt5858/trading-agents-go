@@ -12,9 +12,11 @@ import (
 
 // SyncRunDto 是 sync_runs 表的持久化对象。
 type SyncRunDto struct {
-	ID     string `gorm:"column:id;type:varchar(48);primaryKey"`
-	Kind   string `gorm:"column:kind;type:varchar(24);not null;index:idx_sync_runs_kind_market,priority:1"`
-	Market string `gorm:"column:market;type:varchar(8);not null;index:idx_sync_runs_kind_market,priority:2"`
+	ID string `gorm:"column:id;type:varchar(48);primaryKey"`
+	// (kind, market) 后面接 started_at DESC：LatestOf 是「这个 kind/market 最近一次跑的是啥」，
+	// 不带排序列的话取一行要把该 kind/market 的全部历史排一遍，而这张表只增不减。
+	Kind   string `gorm:"column:kind;type:varchar(24);not null;index:idx_sync_runs_kind_market_started,priority:1"`
+	Market string `gorm:"column:market;type:varchar(8);not null;index:idx_sync_runs_kind_market_started,priority:2"`
 	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_sync_runs_status"`
 
 	// RunningKey 让「同类型同市场只能有一个运行中实例」成为数据库约束。
@@ -33,7 +35,7 @@ type SyncRunDto struct {
 
 	Cursor      string     `gorm:"column:cursor;type:varchar(64)"`
 	TriggeredBy string     `gorm:"column:triggered_by;type:varchar(64)"`
-	StartedAt   time.Time  `gorm:"column:started_at;type:datetime(3);not null;index:idx_sync_runs_started"`
+	StartedAt   time.Time  `gorm:"column:started_at;type:datetime(3);not null;index:idx_sync_runs_started;index:idx_sync_runs_kind_market_started,priority:3,sort:desc"`
 	FinishedAt  *time.Time `gorm:"column:finished_at;type:datetime(3)"`
 	DurationMS  int64      `gorm:"column:duration_ms;not null;default:0"`
 	Error       string     `gorm:"column:error;type:text"`

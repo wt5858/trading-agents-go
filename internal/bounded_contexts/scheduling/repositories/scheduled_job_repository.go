@@ -33,8 +33,6 @@ func NewScheduledJobRepository(db *gorm.DB) *ScheduledJobRepository {
 	return &ScheduledJobRepository{db: db}
 }
 
-func (repo *ScheduledJobRepository) GetDb() *gorm.DB { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 分布式抢占
 // ---------------------------------------------------------------------------

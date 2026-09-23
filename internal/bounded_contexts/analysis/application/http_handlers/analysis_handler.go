@@ -99,7 +99,7 @@ func (h *AnalysisHandler) Submit(c *gin.Context) {
 	}
 	var req submitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	task, err := h.analysisService.Submit(c.Request.Context(), op, domain_services.SubmitInput{
@@ -148,7 +148,7 @@ func (h *AnalysisHandler) SubmitBatch(c *gin.Context) {
 	}
 	var req submitBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	out, err := h.batchService.SubmitBatch(c.Request.Context(), op, domain_services.SubmitBatchInput{

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/scheduling/value_objects"
+	"github.com/wt5858/trading-agents-go/pkg/mq"
 )
 
 // 本包的全部价值就在一个判断上：**什么样的失败该让消息重投，什么样的该确认丢弃**。
@@ -64,9 +65,12 @@ func TestPropagatesDomainErrorToTriggerRedelivery(t *testing.T) {
 	}
 }
 
-func TestDropsUnparseableMessage(t *testing.T) {
-	// 报文本身是坏的，重来一万次也是同样的结果。上抛只会让它在重试队列
-	// 和主队列之间兜圈子直到进死信队列，除了制造噪音没有任何作用。
+// 坏报文走 mq.ErrPoison：不重投，但进死信队列而不是被删掉。
+//
+// 上抛普通错误只会让它在重试队列和主队列之间兜圈子直到进死信，除了噪音没有作用；
+// 返回 nil 则会把它删掉——而坏报文最常见的成因是滚动发布期间新旧结构不兼容，
+// 那恰恰是最需要留下原件的时刻。ErrPoison 两头都避开。
+func TestSendsUnparseableMessageToDLQ(t *testing.T) {
 	cases := map[string]string{
 		"不是 JSON":        "{ 这不是 JSON",
 		"缺 jobId":        `{"scheduledFor":"2026-09-17T10:00:00Z"}`,
@@ -78,8 +82,9 @@ func TestDropsUnparseableMessage(t *testing.T) {
 			exec := &fakeExecutor{}
 			h := NewJobDueHandler(exec, nil)
 
-			if err := h.OnReceivedMessage(context.Background(), body); err != nil {
-				t.Fatalf("无法解析的报文应当被确认丢弃，实际上抛了: %v", err)
+			err := h.OnReceivedMessage(context.Background(), body)
+			if !errors.Is(err, mq.ErrPoison) {
+				t.Fatalf("无法解析的报文应当判为 ErrPoison 直接进死信，实际: %v", err)
 			}
 			if len(exec.calls) != 0 {
 				t.Fatal("坏报文不该被转调到领域层")

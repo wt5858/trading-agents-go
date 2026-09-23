@@ -26,8 +26,6 @@ func NewBatchRepository(db *gorm.DB) *BatchRepository {
 	return &BatchRepository{db: db}
 }
 
-func (repo *BatchRepository) GetDb() *gorm.DB { return repo.db }
-
 // Create 首次落库批次。
 //
 // ON CONFLICT DO NOTHING 让它幂等：批量提交在网络抖动后被整体重试时，

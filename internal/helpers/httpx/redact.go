@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // Placeholder 是脱敏后留下的占位符。统一成一个值，便于在日志里搜。
@@ -162,9 +163,28 @@ func SanitizeBody(body []byte, limit int, known ...string) string {
 	s = scrubSecretLike(s)
 
 	if limit > 0 && len(s) > limit {
-		s = s[:limit] + "...(truncated)"
+		// 按 rune 边界切，不按字节。上游的错误文案基本都是中文（tushare 的 msg、
+		// 东财的 502 页面），一个汉字三字节，照字节切几乎必然切在半个字符上，
+		// 留下的非法 UTF-8 会一路进到 zap 里——排查时看到的就是一串问号。
+		s = truncateRunes(s, limit) + "...(truncated)"
 	}
 	return s
+}
+
+// truncateRunes 把 s 截到不超过 limit 字节，且不切断任何一个 rune。
+func truncateRunes(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	// 从 limit 往回退，直到落在一个 rune 的起始字节上。合法 UTF-8 里最多退 3 字节
+	// （单个 rune 最长 4 字节），但循环一直退到 0 而不是提前收手：limit 比首个
+	// rune 还短时，唯一正确的答案是空串，而不是半个字符。
+	for i := limit; i > 0; i-- {
+		if utf8.RuneStart(s[i]) {
+			return s[:i]
+		}
+	}
+	return ""
 }
 
 // scrubSecretLike 按形态替换 Bearer 令牌与像密钥的词。

@@ -32,8 +32,6 @@ func NewStockRepository(db *gorm.DB) *StockRepository {
 	return &StockRepository{db: db}
 }
 
-func (repo *StockRepository) GetDb() *gorm.DB { return repo.db }
-
 // stockUpsertColumns 是冲突时**无条件**覆盖的列。
 // 刻意不含 id 和 (market, symbol)：前者是代理键，后者是业务主键，
 // 覆盖它们等于把「更新」变成「改身份」。

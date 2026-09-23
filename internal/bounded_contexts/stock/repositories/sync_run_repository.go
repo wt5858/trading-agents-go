@@ -27,8 +27,6 @@ func NewSyncRunRepository(db *gorm.DB) *SyncRunRepository {
 	return &SyncRunRepository{db: db}
 }
 
-func (repo *SyncRunRepository) GetDb() *gorm.DB { return repo.db }
-
 // TryStart 插入一次运行中的同步。
 //
 // 「同类型同市场同时只能有一个在跑」由 running_key 唯一索引保证，不由应用层查重保证：
@@ -123,7 +121,10 @@ func (repo *SyncRunRepository) List(
 		return nil, 0, translateSQL(err, "统计同步记录")
 	}
 	if total == 0 {
-		return nil, 0, nil
+		// 返回分配好的空切片而不是 nil：nil 切片会被序列化成 JSON 的 null，
+		// 而本项目其余分页仓储一律给 []。让调用方为「没有结果」分辨两种形状
+		// 是纯粹的额外负担。
+		return []*entities.SyncRun{}, 0, nil
 	}
 
 	var rows []*dtos.SyncRunDto

@@ -22,8 +22,6 @@ func NewSystemSettingRepository(db *gorm.DB) *SystemSettingRepository {
 	return &SystemSettingRepository{db: db}
 }
 
-func (repo *SystemSettingRepository) GetDb() *gorm.DB { return repo.db }
-
 // Upsert 写入一项配置：不存在就插入，存在就更新。
 //
 // 用 ON DUPLICATE KEY UPDATE 而不是「先查存在性、再决定 INSERT 还是 UPDATE」：

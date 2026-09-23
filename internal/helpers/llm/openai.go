@@ -287,6 +287,13 @@ func doJSON(ctx context.Context, hc *http.Client, provider, url string, headers 
 			// Do 失败返回的 *url.Error 带着完整 URL（含 query），
 			// 而这个错误会被上层原样打进日志。
 			lastErr = custom_errors.Unavailable("%s 请求失败", provider).Wrap(httpx.RedactError(err))
+			// 不是所有传输错误都值得重试。域名解析不了、证书不对、连接被拒，
+			// 重试三次仍然是同样的结果；而单次超时 defaultTimeout 就是 120 秒，
+			// 一次「重试到底」能烧掉 8 分钟——一次分析只有半小时，且有十几次调用。
+			// 判据与行情出站层共用一份，见 httpx.IsRetriableOutbound。
+			if !httpx.IsRetriableOutbound(err) {
+				return lastErr
+			}
 			continue
 		}
 
@@ -329,9 +336,13 @@ func doOnce(ctx context.Context, hc *http.Client, url string, headers map[string
 	return resp.StatusCode, body, nil
 }
 
-// waitBackoff 做指数退避，同时响应 ctx 取消。
+// waitBackoff 做带抖动的指数退避，同时响应 ctx 取消。
+//
+// 抖动不是锦上添花：分析阶段是有界并发扇出（多个分析师并行、每个还有多轮工具调用），
+// 它们打的是同一个 provider，会在同一瞬间吃到同一次 429。没有抖动的话这批请求
+// 会在 t+500ms、t+1.5s、t+3.5s 整整齐齐地一起醒来，每次都再撞一遍限流。
 func waitBackoff(ctx context.Context, attempt int) error {
-	delay := 500 * time.Millisecond << (attempt - 1)
+	delay := httpx.Jitter(500 * time.Millisecond << (attempt - 1))
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {

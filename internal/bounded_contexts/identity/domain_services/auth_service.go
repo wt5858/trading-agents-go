@@ -137,6 +137,20 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*LoginR
 	if err != nil {
 		return nil, err
 	}
+	// Slide the session TTL to match the freshly-issued refresh token.
+	//
+	// Without this the Redis key keeps the deadline set at *first login*, while Issue
+	// hands back a refresh token whose exp is a full RefreshTokenTTL away. The two then
+	// disagree, and the session always loses: an actively-used account is logged out
+	// 30 days after it first signed in, no matter how recently it was active, and the
+	// user is left holding a token that still looks valid but no longer resolves —
+	// exactly the "令牌还没过期但会话已经没了" state the session store exists to prevent.
+	//
+	// Save is idempotent (SET overwrites, SADD is a no-op on an existing member), so
+	// re-saving the same session id is precisely a TTL touch.
+	if err := s.sessionRepo.Save(ctx, claims.SessionID, user.ID); err != nil {
+		return nil, err
+	}
 	return &LoginResult{Tokens: tokens, User: user}, nil
 }
 

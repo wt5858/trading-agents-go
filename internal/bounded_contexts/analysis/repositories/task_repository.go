@@ -32,8 +32,6 @@ func NewTaskRepository(db *gorm.DB) *TaskRepository {
 	return &TaskRepository{db: db}
 }
 
-func (repo *TaskRepository) GetDb() *gorm.DB { return repo.db }
-
 // Save 首次落库单个任务聚合。
 //
 // 用 ON CONFLICT DO NOTHING 而不是裸 INSERT：提交路径可能被客户端重试，
@@ -271,7 +269,9 @@ func (repo *TaskRepository) FindByID(ctx context.Context, id string) (*entities.
 	return dto.ToDomain(), nil
 }
 
-// ListByUser 走 idx_tasks_user_status。status 传零值表示不限状态。
+// ListByUser 的 status 传零值表示不限状态，两种形态各有一条索引：
+// 带 status 走 idx_tasks_user_status_created，不带走 idx_tasks_user_created。
+// 两条都把 created_at DESC, id DESC 包进去了，翻页不再排序。
 //
 // 排序用 created_at DESC, id DESC：任务 ID 不保证单调，只按 created_at 排，
 // 在同毫秒创建的批量任务上会出现翻页重复，补一个 id 做 tie-break。

@@ -33,10 +33,13 @@ type TaskDto struct {
 	// 任务 ID 由领域服务生成（UUID），不用自增：任务要先落库再入队列，
 	// 队列里必须有一个稳定标识，自增主键在入队那一刻还拿不到。
 	ID string `gorm:"column:id;type:varchar(40);primaryKey"`
-	// (user_id, status) 覆盖两条最热的查询：用户任务列表按状态筛选，
-	// 以及单用户并发额度统计（CountRunningByUser 只扫这个索引，不回表）。
-	UserID uint64 `gorm:"column:user_id;not null;index:idx_tasks_user_status,priority:1"`
-	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_tasks_user_status,priority:2;index:idx_tasks_stale,priority:1"`
+	// 用户任务列表有两种形态（带状态筛选 / 不带），各配一条索引，两条都把排序列
+	// created_at DESC, id DESC 包到了尾部，翻页不需要额外排序。
+	// 不带状态时必须另有一条，因为 status 不是常量，复合索引里它后面的 created_at
+	// 只是分段有序的，排不了序。
+	// 单用户并发额度统计（CountRunningByUser）走 idx_tasks_user_status_created 的前两列。
+	UserID uint64 `gorm:"column:user_id;not null;index:idx_tasks_user_status_created,priority:1;index:idx_tasks_user_created,priority:1"`
+	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_tasks_user_status_created,priority:2;index:idx_tasks_stale,priority:1"`
 	// 批量任务的子任务靠 batch_id 聚合，单列索引即可（批次内任务数是十级别的）。
 	// 它只是一个跨聚合的标识引用，没有也不该有外键约束——
 	// 两个聚合各自落库，用外键就等于要求它们同事务写入。
@@ -61,8 +64,9 @@ type TaskDto struct {
 	// state_changed_at 与 (status) 组成 idx_tasks_stale，专供停滞巡检。
 	// 它每次状态迁移都刷新，和 started_at（首次启动、重试不覆盖）不是一回事。
 	StateChangedAt time.Time `gorm:"column:state_changed_at;type:datetime(3);not null;index:idx_tasks_stale,priority:2"`
-	// created_at 单列索引支撑「最近任务」排序与按时间归档的清理作业。
-	CreatedAt  time.Time  `gorm:"column:created_at;type:datetime(3);not null;index:idx_tasks_created_at;autoCreateTime:false"`
+	// created_at 单列索引支撑「最近任务」排序与按时间归档的清理作业；
+	// 另外两条复合索引把它当作排序尾巴（sort:desc 与查询的 ORDER BY 方向一致）。
+	CreatedAt  time.Time  `gorm:"column:created_at;type:datetime(3);not null;index:idx_tasks_created_at;index:idx_tasks_user_status_created,priority:3,sort:desc;index:idx_tasks_user_created,priority:2,sort:desc;autoCreateTime:false"`
 	StartedAt  *time.Time `gorm:"column:started_at;type:datetime(3)"`
 	FinishedAt *time.Time `gorm:"column:finished_at;type:datetime(3)"`
 }

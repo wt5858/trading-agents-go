@@ -26,8 +26,6 @@ func NewLLMProviderRepository(db *gorm.DB) *LLMProviderRepository {
 	return &LLMProviderRepository{db: db}
 }
 
-func (repo *LLMProviderRepository) GetDb() *gorm.DB { return repo.db }
-
 // Create 插入一条供应商配置。
 //
 // 刻意不做「这个名字是否已存在」的前置查询：那是一个 TOCTOU 窗口
@@ -133,7 +131,9 @@ func (repo *LLMProviderRepository) List(ctx context.Context, page shared_vo.Page
 		return nil, 0, translate(err, "统计供应商配置")
 	}
 	if total == 0 {
-		return nil, 0, nil
+		// 返回分配好的空切片而不是 nil：nil 切片会被序列化成 JSON 的 null，
+		// 而本项目其余分页仓储一律给 []。
+		return []*entities.LLMProviderConfig{}, 0, nil
 	}
 
 	var rows []*dtos.LLMProviderDto

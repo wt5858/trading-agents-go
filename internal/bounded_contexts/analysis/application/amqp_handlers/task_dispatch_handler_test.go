@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
+	"github.com/wt5858/trading-agents-go/pkg/mq"
 )
 
 // ===========================================================================
@@ -33,7 +34,14 @@ func (r *stubRunner) RunTask(_ context.Context, taskID string) error {
 	return r.err
 }
 
-func TestHandlerDropsUnparsableMessage(t *testing.T) {
+// 坏报文必须走 mq.ErrPoison：不重投，但进死信队列而不是被删掉。
+//
+// 这里有三种可能的收场，只有一种是对的：
+//   - 返回普通错误 → 在重试队列和主队列之间兜圈子 MaxRetries 次才进死信，纯噪音；
+//   - 返回 nil     → 确认并**删除**。坏报文最常见的成因是滚动发布期间新旧结构
+//     不兼容，那恰恰是最需要留下原件的时刻；
+//   - 返回 ErrPoison → 不重试，直接进死信队列，带着 x-dead-reason 和原始 trace_id。
+func TestHandlerSendsUnparsableMessageToDLQ(t *testing.T) {
 	// 两类坏报文：整个解不开的，和解得开但缺必填字段的。
 	// 它们的共同点是重投一万次结果完全一样。
 	for _, raw := range []string{
@@ -45,9 +53,9 @@ func TestHandlerDropsUnparsableMessage(t *testing.T) {
 		runner := &stubRunner{}
 		h := NewTaskDispatchHandler(runner, nil)
 
-		if err := h.OnReceivedMessage(context.Background(), raw); err != nil {
-			t.Fatalf("坏报文 %q 必须确认丢弃（返回 nil），实际返回 %v。"+
-				"返回错误会让它在队列之间兜圈子直到进死信，除了噪音没有任何作用", raw, err)
+		err := h.OnReceivedMessage(context.Background(), raw)
+		if !errors.Is(err, mq.ErrPoison) {
+			t.Fatalf("坏报文 %q 必须判为 ErrPoison 直接进死信，实际返回 %v", raw, err)
 		}
 		if len(runner.called) != 0 {
 			t.Fatalf("坏报文 %q 不该触发任何执行，实际调用了 %v", raw, runner.called)

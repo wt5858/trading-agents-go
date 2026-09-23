@@ -232,20 +232,23 @@ func (b *AmqpBus) publishOne(ctx context.Context, e DomainEvent) error {
 //
 // 判据只有一句：**重来一次有没有可能成功**。
 //
-//	报文解不开            重来一万次也是同样的结果  -> nil
-//	本进程没注册这个事件   重来还是没注册            -> nil
-//	处理器返回错误         下游可能只是临时不可用    -> 错误
+//	报文解不开            重来一万次也是同样的结果  -> mq.ErrPoison（进死信）
+//	本进程没注册这个事件   重来还是没注册            -> nil（确认丢弃）
+//	处理器返回错误         下游可能只是临时不可用    -> 错误（重投）
 //
-// 前两类若返回错误，消息会在重试队列和主队列之间兜圈子直到进死信队列，
-// 除了制造噪音没有任何作用。
+// 前两类若返回普通错误，消息会在重试队列和主队列之间兜圈子直到进死信队列，
+// 除了制造噪音没有任何作用——所以它们都不重投。但「不重投」有两种收场，
+// 这两类分别落在不同的一种上：
 //
-// 「本进程没注册这个事件」是常态而不是异常：全部领域事件共用一个队列，
-// 而任何一个消费进程都只关心其中一部分。
+//   - 解不开的报文进**死信队列**。它多半来自滚动发布期间新旧事件结构不兼容，
+//     是最需要留下原件、事后能重放的情况；直接确认等于把它删了。
+//   - 没订阅的事件**确认丢弃**。它不是异常而是常态：全部领域事件共用一个队列，
+//     任何一个消费进程都只关心其中一部分，把别人的事件塞进我的死信队列纯属噪音。
 func (b *AmqpBus) Dispatch(ctx context.Context, message string) error {
 	var env envelope
 	if err := json.Unmarshal([]byte(message), &env); err != nil {
-		b.log.Error("领域事件报文无法解析，已丢弃", zap.Error(err), zap.String("message", message))
-		return nil
+		b.log.Error("领域事件报文无法解析，转入死信队列", zap.Error(err), zap.String("message", message))
+		return fmt.Errorf("领域事件报文无法解析: %v: %w", err, mq.ErrPoison)
 	}
 
 	b.mu.RLock()
@@ -265,9 +268,11 @@ func (b *AmqpBus) Dispatch(ctx context.Context, message string) error {
 
 	event, err := decodeEvent(eventType, env.Payload)
 	if err != nil {
-		b.log.Error("领域事件无法还原成具体类型，已丢弃",
+		// 这里是订阅了、但 payload 对不上注册的类型——版本不兼容的典型表现，
+		// 比解不开外层信封更值得留证据。
+		b.log.Error("领域事件无法还原成具体类型，转入死信队列",
 			zap.String("event", env.Name), zap.Error(err))
-		return nil
+		return fmt.Errorf("领域事件 %s 无法还原: %v: %w", env.Name, err, mq.ErrPoison)
 	}
 
 	return b.notify(ctx, env, subs, event)

@@ -165,6 +165,23 @@ func (p *PartialFailure) Error() string {
 
 func (p *PartialFailure) Unwrap() error { return p.Err }
 
+// ErrPoison 表示这条消息本身坏了，重投多少次都是同样的结果。
+//
+// 处理器用 fmt.Errorf("...: %w", mq.ErrPoison) 包出来，本包看到它就跳过重试，
+// 直接把消息转进死信队列。
+//
+// # 为什么不能像以前那样「记一条日志然后 return nil」
+//
+// return nil 的意思是「确认，这条消息没有后续了」，于是消息被**删除**。
+// 对一条解析不出来的报文来说，这个判断的前半句是对的（重试确实没用），
+// 后半句是错的：队列早就声明了 <queue>.dlq，而在此之前没有任何东西往里写。
+// 报文解析不出来最常见的原因是滚动发布期间新旧两版事件结构不兼容——
+// 那正是最需要把原始报文留下来、事后能重放的时刻，却恰恰是它被悄悄删掉的时刻。
+//
+// 转进死信队列同样是「不再重试」，但消息还在，头上带着 x-dead-reason 和原始
+// trace_id。代价只是死信队列会积压一些永远不会被自动处理的消息，这本就是它的用途。
+var ErrPoison = errors.New("mq: 消息无法解析，重试没有意义")
+
 type retryScopeKey struct{}
 
 // RetryScopesFrom 返回本次投递需要重跑的处理器范围。
@@ -716,6 +733,14 @@ func (a *AMQP) handleDelivery(q Queue, h Handler, d amqp.Delivery) {
 		zap.Int("max_retries", q.MaxRetries),
 		zap.Strings("retry_scope", scopes),
 		zap.Error(err))
+
+	// 坏报文不消耗重试次数，直接判死：重投它只是把同一次解析失败再做 MaxRetries 遍。
+	// 范围传 nil——一条解析不出来的消息谈不上「只重跑某几个处理器」。
+	if errors.Is(err, ErrPoison) {
+		log.Error("消息无法解析，直接转入死信队列")
+		a.route(d, q.DLQName(), attempt, err.Error(), nil, dlog)
+		return
+	}
 
 	if attempt >= q.MaxRetries {
 		log.Error("消息重试次数已用尽，转入死信队列")

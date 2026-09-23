@@ -155,7 +155,7 @@ func (h *ConfigHandler) CreateProvider(c *gin.Context) {
 	}
 	var req createProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	provider, err := h.providerService.Register(c.Request.Context(), op, domain_services.RegisterProviderCommand{
@@ -244,7 +244,7 @@ func (h *ConfigHandler) UpdateProvider(c *gin.Context) {
 	}
 	var req updateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	provider, err := h.providerService.Update(c.Request.Context(), op, id, domain_services.UpdateProviderCommand{
@@ -544,7 +544,7 @@ func (h *ConfigHandler) UpsertSetting(c *gin.Context) {
 	}
 	var req upsertSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	setting, err := h.configService.Set(c.Request.Context(), op, domain_services.SetSettingCommand{
@@ -642,7 +642,7 @@ func (h *ConfigHandler) Reload(c *gin.Context) {
 	}
 	var req reloadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	if err := h.configService.Reload(c.Request.Context(), op, req.Scope, req.Reason); err != nil {

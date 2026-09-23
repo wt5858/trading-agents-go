@@ -79,7 +79,13 @@ func (r *PaperQuoteReader) LatestQuotes(ctx context.Context, codes []shared_vo.S
 		// 走构造函数而不是结构字面量：LiveQuote 的价格必须按货币精度归整，
 		// 而那一步只在 NewLiveQuote 里做。绕开它会让一个多出几位小数的价格
 		// 进入模拟撮合，最终体现为持仓市值对不上。
-		out = append(out, paper_vo.NewLiveQuote(q.Code, q.Close, q.UpdatedAt))
+		//
+		// AsOf 取 TradeDate 而不是 UpdatedAt：这两个时间戳回答的是不同的问题。
+		// UpdatedAt 是「这一行什么时候写进库的」，一次历史数据回补会把它刷成今天，
+		// 于是一条三个月前的收盘价看起来像是刚刚的报价。TradeDate 是「这个价格
+		// 属于哪一天」，也就是报价自己的时钟——下单路径的新鲜度判断只能问它。
+		asOf, _ := q.TradeDate.Time()
+		out = append(out, paper_vo.NewLiveQuote(q.Code, q.Close, asOf))
 	}
 	return out, nil
 }

@@ -41,8 +41,6 @@ func NewJobExecutionRepository(db *gorm.DB) *JobExecutionRepository {
 	return &JobExecutionRepository{db: db}
 }
 
-func (repo *JobExecutionRepository) GetDb() *gorm.DB { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 写入：三条路径，对应生命周期的三次推进
 // ---------------------------------------------------------------------------

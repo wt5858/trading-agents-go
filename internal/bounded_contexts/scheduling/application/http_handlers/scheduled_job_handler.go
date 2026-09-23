@@ -147,7 +147,7 @@ func (h *ScheduledJobHandler) Create(c *gin.Context) {
 	}
 	var req createJobRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	job, err := h.scheduler.CreateJob(c.Request.Context(), op, domain_services.CreateJobInput{
@@ -198,7 +198,7 @@ func (h *ScheduledJobHandler) Update(c *gin.Context) {
 	}
 	var req updateJobRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	in := domain_services.UpdateJobInput{
@@ -397,7 +397,7 @@ func (h *ScheduledJobHandler) PreviewCron(c *gin.Context) {
 	}
 	var req previewCronRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	if req.Count <= 0 {

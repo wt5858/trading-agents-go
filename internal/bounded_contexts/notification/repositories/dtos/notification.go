@@ -33,8 +33,12 @@ type NotificationDto struct {
 
 	// ReadAt 为 NULL 即未读。指针类型是必需的：值类型的 time.Time 零值会被写成
 	// '0000-00-00'，那在 read_at IS NULL 的谓词下会被当成**已读**，未读红点直接失灵。
-	ReadAt    *time.Time `gorm:"column:read_at;type:datetime(3);index:idx_notifications_user_read_created,priority:2"`
-	CreatedAt time.Time  `gorm:"column:created_at;type:datetime(3);not null;autoCreateTime:false;index:idx_notifications_user_read_created,priority:3"`
+	ReadAt *time.Time `gorm:"column:read_at;type:datetime(3);index:idx_notifications_user_read_created,priority:2"`
+	// idx_notifications_created_at 单列索引专供 PurgeOlderThan：清理是
+	// `DELETE WHERE created_at < ?`，不带 user_id，走不了上面那个以 user_id 起手的
+	// 复合索引。没有它，分块删除的最后一块必须扫到表尾，而 InnoDB 会对**检查过**的
+	// 每一行加 next-key 锁——把正在写通知的事件处理器一起锁住。
+	CreatedAt time.Time `gorm:"column:created_at;type:datetime(3);not null;autoCreateTime:false;index:idx_notifications_user_read_created,priority:3;index:idx_notifications_created_at"`
 }
 
 func (NotificationDto) TableName() string { return "notifications" }

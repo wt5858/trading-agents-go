@@ -117,7 +117,7 @@ func (h *WatchlistHandler) CreateGroup(c *gin.Context) {
 	}
 	var req groupNameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	group, err := h.watchlistService.CreateGroup(c.Request.Context(), op, req.Name)
@@ -162,7 +162,7 @@ func (h *WatchlistHandler) RenameGroup(c *gin.Context) {
 	}
 	var req groupNameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	group, err := h.watchlistService.RenameGroup(c.Request.Context(), op, groupID, req.Name)
@@ -280,7 +280,7 @@ func (h *WatchlistHandler) AddStock(c *gin.Context) {
 	}
 	var req addStockRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	item, err := h.watchlistService.AddStock(c.Request.Context(), op, domain_services.AddStockInput{
@@ -369,7 +369,7 @@ func (h *WatchlistHandler) UpdateNote(c *gin.Context) {
 	}
 	var req updateNoteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	ref := domain_services.StockRef{
@@ -419,7 +419,7 @@ func (h *WatchlistHandler) Reorder(c *gin.Context) {
 	}
 	var req reorderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	if err := h.watchlistService.ReorderGroup(c.Request.Context(), op, groupID, req.Codes); err != nil {
@@ -461,7 +461,7 @@ func (h *WatchlistHandler) MoveStock(c *gin.Context) {
 	}
 	var req moveStockRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	err := h.watchlistService.MoveStock(c.Request.Context(), op, domain_services.MoveStockInput{

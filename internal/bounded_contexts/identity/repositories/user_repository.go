@@ -24,15 +24,16 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-func (repo *UserRepository) GetDb() *gorm.DB { return repo.db }
-
 func (repo *UserRepository) Create(ctx context.Context, u *entities.User) error {
 	dto := dtos.FromDomainUser(u)
 	if err := repo.db.WithContext(ctx).Create(dto).Error; err != nil {
 		return translate(err, "创建用户")
 	}
 	// Backfill the generated id; the caller signs a token with it right after.
-	u.ID = dto.ID
+	// Goes through the aggregate rather than poking the field directly: the registration
+	// event raised back in Register() still carries UserID 0, and only the entity knows
+	// which of its pending events need the id patched in once it exists.
+	u.AssignPersistedID(dto.ID)
 	return nil
 }
 
@@ -123,7 +124,10 @@ func (repo *UserRepository) List(ctx context.Context, keyword string, page share
 		return nil, 0, translate(err, "统计用户")
 	}
 	if total == 0 {
-		return nil, 0, nil
+		// An allocated empty slice, not nil: a nil slice marshals to JSON `null`,
+		// and every other paginated repo here returns `[]`. Clients should not have
+		// to handle two shapes for "no results".
+		return []*entities.User{}, 0, nil
 	}
 
 	var rows []*dtos.UserDto

@@ -16,6 +16,14 @@ func translate(err error, action string) error {
 	if err == nil {
 		return nil
 	}
+	// A domain error we raised ourselves passes straight through. Without this, any
+	// NotFound/Conflict produced inside a transaction callback gets wrapped as Internal
+	// on the way out — a 404 turns into a 500 and the caller loses its retry signal.
+	// Every other context's translate opens with this; identity was the odd one out.
+	var de *custom_errors.Error
+	if errors.As(err, &de) {
+		return de
+	}
 	var me *mysql.MySQLError
 	if errors.As(err, &me) && me.Number == 1062 {
 		return custom_errors.AlreadyExists("%s失败：记录已存在", action).Wrap(err)

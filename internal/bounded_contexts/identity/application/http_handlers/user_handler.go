@@ -83,7 +83,7 @@ type createUserRequest struct {
 func (h *UserHandler) Create(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	user, err := h.userService.CreateUser(c.Request.Context(), ClaimsOf(c), domain_services.CreateUserCommand{
@@ -159,7 +159,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 	var req updateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	user, err := h.userService.UpdateProfile(c.Request.Context(), claims.UserID, domain_services.UpdateProfileCommand{
@@ -200,7 +200,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 	}
 	var req changePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	if err := h.userService.ChangePassword(c.Request.Context(), claims.UserID, req.OldPassword, req.NewPassword); err != nil {
@@ -238,7 +238,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 	}
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, custom_errors.Invalid("请求参数不合法: %v", err))
+		response.FailBind(c, err)
 		return
 	}
 	if err := h.userService.ResetPassword(c.Request.Context(), ClaimsOf(c), id, req.NewPassword); err != nil {

@@ -43,8 +43,6 @@ func NewNotificationRepository(db *gorm.DB) *NotificationRepository {
 	return &NotificationRepository{db: db}
 }
 
-func (repo *NotificationRepository) GetDb() *gorm.DB { return repo.db }
-
 // ---------------------------------------------------------------------------
 // 写入
 // ---------------------------------------------------------------------------

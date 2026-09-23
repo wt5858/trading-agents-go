@@ -30,17 +30,59 @@ func NewPaperAccountRepository(db *gorm.DB) *PaperAccountRepository {
 	return &PaperAccountRepository{db: db}
 }
 
-func (repo *PaperAccountRepository) GetDb() *gorm.DB { return repo.db }
-
-// Create 开户落库。
+// createSlotAttempts 是抢槽位的最大尝试次数。
 //
-// 新账户没有持仓也没有成交，所以这里是一条语句就够了，不需要事务：
-// 事务的意义是把多次写入捆成一个原子操作，单条语句本身就是原子的。
+// 每次失败都意味着恰好有另一个请求在同一毫秒抢到了同一个槽位。3 次足够：
+// 上限只有 10 个槽位，要连输 3 次得有三个并发请求精确重叠，而真到了那个程度，
+// 再多试几次也只是把问题往后推——直接报冲突让调用方重试更诚实。
+const createSlotAttempts = 3
+
+// Create 开户落库，顺带把「每个用户最多 N 个账户」这条上限交给数据库执行。
+//
+// # 为什么这里要循环
+//
+// 账户数上限在领域服务里查过一次（CountByUser >= 10 就拒绝），但那是查询和插入
+// 两条语句，中间的窗口谁都守不住：两个并发请求都读到 9，都判定还能开，于是用户
+// 拿到 11 个账户。应用层的检查是给用户的友好提示，不是保证。
+//
+// 真正的保证是 seq 槽位号：uk_paper_accounts_user_seq 让同一个槽位只能被占一次，
+// ck_paper_accounts_seq 让槽位数不超过上限。两个并发请求算出同一个 seq，插入时
+// 必有一个吃到 1062——那不是错误，那正是约束在起作用，重算一次槽位再来即可。
+//
+// seq 完全是持久化层的概念，聚合里没有它，调用方也看不见：交进来的还是整个聚合根。
+//
+// 槽位靠 MAX(seq)+1 递推而不是 COUNT(*)，因为两者只有在「从不删除账户」时才相等，
+// 而前者即便将来加了删除路径也不会把已用过的槽位号发第二次。
 func (repo *PaperAccountRepository) Create(ctx context.Context, a *entities.PaperAccount) error {
-	if err := repo.db.WithContext(ctx).Create(dtos.FromDomainAccount(a)).Error; err != nil {
-		return translatef(err, "模拟账户(id=%s)", a.ID)
+	dto := dtos.FromDomainAccount(a)
+	var lastErr error
+	for attempt := 0; attempt < createSlotAttempts; attempt++ {
+		var next *uint8
+		err := repo.db.WithContext(ctx).Model(&dtos.PaperAccountDto{}).
+			Where("user_id = ?", a.UserID).
+			Select("MAX(seq) + 1").Scan(&next).Error
+		if err != nil {
+			return translatef(err, "模拟账户(id=%s)", a.ID)
+		}
+		if next == nil {
+			// 该用户还没有任何账户，MAX 返回 NULL。
+			var zero uint8
+			next = &zero
+		}
+		dto.Seq = *next
+
+		err = repo.db.WithContext(ctx).Create(dto).Error
+		if err == nil {
+			return nil
+		}
+		if !isDuplicateKey(err) {
+			return translatef(err, "模拟账户(id=%s)", a.ID)
+		}
+		// 槽位被别人抢先占了，重算一次。注意不能把它当成「账户已存在」返回——
+		// 冲突的是 (user_id, seq) 这个内部槽位，不是账户本身。
+		lastErr = err
 	}
-	return nil
+	return custom_errors.Conflict("开户并发冲突，请重试").Wrap(lastErr)
 }
 
 // FindByID 加载单个聚合：账户一次查询、持仓一次查询，固定两条语句。

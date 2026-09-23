@@ -35,7 +35,19 @@ type App struct {
 	Env  string `mapstructure:"env"` // dev / test / prod
 }
 
-func (a App) IsProd() bool { return a.Env == "prod" }
+// IsProd 是四道防线共同的开关：拒绝 change-me 签名密钥、gin 切 ReleaseMode、
+// 不挂载 Swagger、SQL 日志脱敏。它们全都只认 Env == "prod" 这一次精确比较。
+//
+// 所以 Env 必须是封闭取值，由 validate 在启动时把关：写成 "production" 而不是
+// "prod" 不会有任何报错，只会让上面四样一起悄悄失效——一次拼写换来一个带调试
+// 输出、公开 Swagger、日志里印着口令哈希、还接受硬编码密钥的生产实例。
+func (a App) IsProd() bool { return a.Env == EnvProd }
+
+const (
+	EnvDev  = "dev"
+	EnvTest = "test"
+	EnvProd = "prod"
+)
 
 type HTTP struct {
 	Host           string        `mapstructure:"host"`
@@ -195,6 +207,10 @@ type Auth struct {
 	RefreshTokenTTL time.Duration `mapstructure:"refresh_token_ttl"`
 	BcryptCost      int           `mapstructure:"bcrypt_cost"`
 	// BootstrapAdmin 在用户表为空时自动创建的管理员账号。
+	//
+	// 口令没有默认值，空口令表示「不要自动建号」。默认口令在这里是最坏的选择：
+	// 它让「忘了配」和「配好了」表现得一模一样，而代价是一个用户名和口令
+	// 全世界都知道的管理员账号——只要有人部署时没读这段注释就会踩到。
 	BootstrapAdmin         string `mapstructure:"bootstrap_admin"`
 	BootstrapAdminPassword string `mapstructure:"bootstrap_admin_password"`
 }
@@ -248,8 +264,12 @@ type LLMProvider struct {
 type LLM struct {
 	DefaultModel string        `mapstructure:"default_model"`
 	Timeout      time.Duration `mapstructure:"timeout"`
-	MaxParallel  int           `mapstructure:"max_parallel"`
 	Providers    []LLMProvider `mapstructure:"providers"`
+
+	// 这里曾经有一个 max_parallel，声明了、给了默认值、然后没有任何代码读它。
+	// 真正决定大模型并发的是三个扇出上限（AnalystFanOutLimit、RiskFanOutLimit、
+	// ToolFanOutLimit）加上全局任务并发。删掉它的理由和 Queue 那段注释里
+	// 删 worker_concurrency 是同一条：留着只会让人以为改了它有用。
 
 	// ProvidersJSON 让供应商列表也能用一个环境变量表达：
 	//
@@ -399,6 +419,8 @@ func Load(path string) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
+	// 归一化必须在 applyLogDefaults 之前：那一步已经开始读 IsProd 了。
+	cfg.App.Env = strings.ToLower(strings.TrimSpace(cfg.App.Env))
 	applyLogDefaults(v, &cfg)
 	if err := cfg.LLM.resolveProviders(); err != nil {
 		return nil, err
@@ -418,6 +440,7 @@ var envOnlyKeys = []string{
 	"redis.password",
 	"amqp.password",
 	"auth.jwt_secret",
+	"auth.bootstrap_admin_password",
 	"market.tushare_token",
 	"market.finnhub_token",
 }
@@ -477,6 +500,11 @@ func applyLogDefaults(v *viper.Viper, cfg *Config) {
 }
 
 func (c *Config) validate() error {
+	switch c.App.Env {
+	case EnvDev, EnvTest, EnvProd:
+	default:
+		return fmt.Errorf("app.env 只能是 %s / %s / %s，当前是 %q", EnvDev, EnvTest, EnvProd, c.App.Env)
+	}
 	if c.Auth.JWTSecret == "" || c.Auth.JWTSecret == "change-me" {
 		if c.App.IsProd() {
 			return fmt.Errorf("生产环境必须设置 auth.jwt_secret")
@@ -539,7 +567,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.refresh_token_ttl", "720h")
 	v.SetDefault("auth.bcrypt_cost", 12)
 	v.SetDefault("auth.bootstrap_admin", "admin")
-	v.SetDefault("auth.bootstrap_admin_password", "admin12345")
+	// bootstrap_admin_password 刻意没有默认值，见 envOnlyKeys。
 
 	v.SetDefault("queue.max_attempts", 3)
 	// 两个 TTL 都必须大于 constants.AnalysisMaxRuntime（30m），理由见 Queue 的注释。
@@ -554,7 +582,6 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("llm.default_model", "deepseek-chat")
 	v.SetDefault("llm.timeout", "180s")
-	v.SetDefault("llm.max_parallel", 4)
 
 	v.SetDefault("market.timeout", "30s")
 	v.SetDefault("market.enable_mock", true)

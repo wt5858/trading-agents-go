@@ -11,6 +11,7 @@ import (
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/domain_kernel/domain_event"
 	"github.com/wt5858/trading-agents-go/internal/helpers/concurrency"
+	"github.com/wt5858/trading-agents-go/internal/helpers/constants"
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
 )
 
@@ -229,8 +230,25 @@ func (w *WorkerService) RunTask(ctx context.Context, taskID string) error {
 // 取消共享 ctx，而 ForEach 会把这个自我取消判成整轮失败，于是十四步全部跑完、报告都
 // 生成了的任务，照样以 context canceled 收尾并一路重试到上限。能写出那个 bug 的地方
 // 现在不存在了。
+//
+// # 这里为什么必须自己设 deadline
+//
+// 传进来的 ctx 是消费者的生命周期 ctx，它没有 deadline——只有进程退出才会取消它。
+// 也就是说，如果不在这里加一层，AnalysisMaxRuntime 这个「领域上限」就只是一句注释：
+// 三个从它派生出来的超时里，只有巡检的 RunningGrace 真的在跑，而巡检干的事情是
+// **重投**。于是一次卡死的分析会走成这样：跑过 35 分钟 → RecoverStale 判定进程已死
+// → Requeue → Dispatch → 另一个消费者 ClaimTask 成功（库里那行已经回到 queued）
+// → 同一个分析开始第二次并发执行，而第一次还在烧 LLM 调用，没有任何东西会叫停它。
+//
+// 加上 deadline 之后，引擎在上限处自己收到取消、正常走 finishFailed，重试次数由
+// 聚合的 Attempts 管着，LLM 开销有上界。scheduling 那边的 runJob 一直是这么做的
+// （context.WithTimeout(ctx, job.EffectiveTimeout())），这里只是把同一件事补齐。
+// 用 AnalysisRunDeadline 而不是 AnalysisMaxRuntime，是为了抢在 broker 前面收尾，
+// 理由见那个常量。
 func (w *WorkerService) runEngine(ctx context.Context, task *entities.Task) (*value_objects.Result, error) {
-	return w.engine.Run(ctx, task.Request, &taskReporter{worker: w, ctx: ctx, task: task})
+	runCtx, cancel := context.WithTimeout(ctx, constants.AnalysisRunDeadline)
+	defer cancel()
+	return w.engine.Run(runCtx, task.Request, &taskReporter{worker: w, ctx: runCtx, task: task})
 }
 
 // finishFailed 以失败收尾，并在还有重试余量时重新排队。

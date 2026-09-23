@@ -28,8 +28,6 @@ func NewReportRepository(db *gorm.DB) *ReportRepository {
 	return &ReportRepository{db: db}
 }
 
-func (repo *ReportRepository) GetDb() *gorm.DB { return repo.db }
-
 // Create 落库一份新报告。
 //
 // # 为什么是裸 INSERT，而不是 ON CONFLICT DO NOTHING

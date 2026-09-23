@@ -3,6 +3,7 @@ package domain_services
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -18,6 +19,11 @@ import (
 const (
 	// maxAccountsPerUser 限制单用户的模拟账户数。模拟盘是学习工具，
 	// 几个并行策略足够了；没有上限的话，一次脚本调用就能给同一个用户开出上万个账户。
+	//
+	// 这里的检查只负责给用户一句人话。**真正的上限在数据库里**：paper_accounts
+	// 的 ck_paper_accounts_seq 封住槽位总数，uk_paper_accounts_user_seq 封住并发。
+	// 两处必须一起改，理由见那个迁移脚本——只改这里的话，并发开户仍然能突破上限，
+	// 只改那里的话，用户会收到一条「开户并发冲突」而不是「最多 10 个」。
 	maxAccountsPerUser = 10
 
 	// saveRetries 是乐观锁冲突后的重试次数。
@@ -211,10 +217,21 @@ func (s *PaperTradingService) resolvePrice(ctx context.Context, code shared_vo.S
 	if err != nil {
 		return decimal.Zero, err
 	}
+	now := time.Now()
 	for _, q := range quotes {
-		if q.Code.Symbol == code.Symbol && q.Usable() {
-			return q.Price, nil
+		if q.Code.Symbol != code.Symbol || !q.Usable() {
+			continue
 		}
+		// 新鲜度只在下单路径上查，估值路径不查（那边靠 HasQuote 把事实透出去）。
+		// 一条停更几个月的报价仍然是 Usable 的——它只是很旧。直接拿来撮合，
+		// 用户会以为自己按今天的价格成交，实际成交在几个月前的收盘价上，
+		// 而且毫无提示，只会沉淀成一笔成本离谱的持仓。
+		if !q.Fresh(now, value_objects.MaxQuoteAge) {
+			return decimal.Zero, custom_errors.Unavailable(
+				"%s 的最新行情停留在 %s，已超出可撮合范围，请显式指定委托价格",
+				code.FullSymbol(), q.AsOf.Format("2006-01-02"))
+		}
+		return q.Price, nil
 	}
 	// 下单路径上拿不到行情必须直接拒绝，不能像估值那样回退到成本价：
 	// 用一个猜出来的价格成交，会污染此后所有的盈亏计算。

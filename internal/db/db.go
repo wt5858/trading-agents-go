@@ -97,9 +97,23 @@ func (c *Connections) Close(ctx context.Context) error {
 func openMySQL(cfg *config.Config, log *zap.Logger) (*gorm.DB, error) {
 	gdb, err := gorm.Open(mysql.Open(cfg.MySQL.DSN()), &gorm.Config{
 		Logger: newGormLogger(cfg.Log, log),
-		// 业务表统一用单数复数由 DTO 的 TableName() 决定，关掉 GORM 的自动复数化，
-		// 免得表名来源出现两处。
+		// 关掉 GORM 默认给每个单条写操作套的隐式事务。
+		//
+		// 表名不在这里管——每个 DTO 都有 TableName()，命名策略配不配都一样。
+		// 这个选项真正影响的是写路径：单条 INSERT/UPDATE 本身就是原子的，
+		// 外面再包一层事务只是多两次往返；需要原子性的地方（聚合根 + 子实体）
+		// 都在仓储里显式 Transaction，不依赖这个默认值。
+		//
+		// 副作用要知道：CreateInBatches 也不再自带外层事务，于是
+		// StockRepository.BulkUpsert 与 TaskRepository.SaveAll 的分片之间没有原子性。
+		// 两者都是 upsert / ON CONFLICT DO NOTHING 的幂等写入，重跑即可收敛，
+		// 所以这是可接受的——但换成非幂等的批量写之前，先回来看这一段。
 		SkipDefaultTransaction: true,
+		// 把驱动错误翻译成 gorm.ErrDuplicatedKey 这类可移植的哨兵值。
+		// 不开的话，各上下文 isDuplicateKey 里那句 errors.Is(err, gorm.ErrDuplicatedKey)
+		// 永远为假，唯一键冲突的识别就只能靠后面按 *mysql.MySQLError 和错误文本兜底——
+		// 而幂等性（通知去重、报告唯一、槽位抢占）全都建立在这个识别之上。
+		TranslateError: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("连接 MySQL 失败: %w", err)

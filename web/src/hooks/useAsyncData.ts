@@ -30,6 +30,21 @@ export function useAsyncData<T>(
 
   const reload = useCallback(() => setNonce((n) => n + 1), [])
 
+  // deps 变了就在渲染期把旧数据清掉，而不是等 effect。
+  //
+  // effect 是 passive 的、在绘制之后才跑，所以「deps 已经变、loading 还是 false、
+  // data 还是旧的」这一帧会真的被画出来——翻页时闪一下上一页的内容。
+  // 这是 React 官方的「渲染期调整状态」模式：setState 会让本次渲染立刻作废重来，
+  // 那一帧不会到达屏幕。
+  const depsKey = JSON.stringify(deps)
+  const [prevDepsKey, setPrevDepsKey] = useState(depsKey)
+  if (depsKey !== prevDepsKey) {
+    setPrevDepsKey(depsKey)
+    setData(null)
+    setError(null)
+    setLoading(true)
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     let alive = true

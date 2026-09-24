@@ -118,8 +118,12 @@ EXPOSE 8080
 
 # 健康检查打在业务端点上而不是端口上：端口通了只说明进程活着，
 # 而 /healthz 走的是完整的路由与响应封装链路。
+#
+# 端口跟随 TA_HTTP_PORT，不写死 8080：那是受支持的覆盖项（见 .env.example），
+# 而 .env 会被 compose 整体注入容器。写死的话，一旦有人改了端口，进程正常服务、
+# 健康检查却永远探不到，容器被标成 unhealthy——编排层据此反复重启一个健康的服务。
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
+    CMD wget -qO- "http://127.0.0.1:${TA_HTTP_PORT:-8080}/healthz" || exit 1
 
 ENTRYPOINT ["/app/trading-agents"]
 # 默认起 HTTP 服务；worker 用 `command: ["worker"]` 覆盖。

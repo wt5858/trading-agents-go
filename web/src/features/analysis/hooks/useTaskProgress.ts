@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import {useEffect, useRef, useState} from 'react'
 
-import { isTerminalStatus, subscribeProgress } from '../../../api/analysis'
-import { ApiError } from '../../../api/errors'
-import type { ProgressView } from '../../../types/api'
+import {isTerminalStatus, subscribeProgress} from '../../../api/analysis'
+import {ApiError} from '../../../api/errors'
+import type {ProgressView} from '../../../types/api'
 
 export interface TaskProgressState {
   progress: ProgressView | null
@@ -17,8 +17,15 @@ export interface TaskProgressState {
 /**
  * 订阅一个任务的实时进度。
  *
- * 任务已经是终态时完全不建连——后端虽然会在这种情况下发一帧快照就关流，
- * 但那仍然是一次没必要的往返，而列表页跳进来时大部分任务都已经跑完了。
+ * status 进依赖数组，不是用 ref 读一次。
+ *
+ * 原先用 ref 是为了避免「状态从 queued 变 running 时把刚建好的连接拆掉重连」，
+ * 但那带来两个真问题：一是首次挂载时详情还没拉回来、status 是 undefined，
+ * 于是「终态不建连」这道守卫恒为假——每次打开一个早就跑完的任务都白建一条 SSE；
+ * 二是任务在观看过程中进入终态时，这个 effect 不会重跑，连接不会被拆掉。
+ *
+ * 改成进依赖之后，代价是 queued→running 会重连一次（后端会立刻推一帧当前快照，
+ * 用户看不出来），换来的是连接生命周期与任务状态真正对齐。
  */
 export function useTaskProgress(
   taskId: string | undefined,
@@ -29,17 +36,20 @@ export function useTaskProgress(
   const [streamError, setStreamError] = useState<string | null>(null)
   const [finished, setFinished] = useState(false)
 
-  // status 只用来决定「要不要建连」，不进依赖数组。
-  //
-  // 它会随着进度推进而变化（queued -> running），进了依赖就会在状态切换的瞬间
-  // 把刚建好的连接拆掉重连——用 ref 读它的当前值，effect 只在 taskId 变时重跑。
-  const statusRef = useRef(status)
-  statusRef.current = status
+  // 已经收到过终局帧。用 ref 而不是 state：它只用来阻止后续重连，
+  // 不需要触发渲染，进 state 反而会多一轮。
+  const sawFinalRef = useRef(false)
 
   useEffect(() => {
     if (!taskId) return
-    if (isTerminalStatus(statusRef.current)) {
+
+    // 详情还没回来时 status 是 undefined，此时先不建连，等它到位。
+    // 这样既不会对已终结的任务白建连接，也不会漏掉真正在跑的任务。
+    if (status === undefined) return
+
+    if (isTerminalStatus(status)) {
       setFinished(true)
+      setConnected(false)
       return
     }
 
@@ -48,7 +58,7 @@ export function useTaskProgress(
 
     setConnected(false)
     setStreamError(null)
-    setFinished(false)
+    if (!sawFinalRef.current) setFinished(false)
 
     subscribeProgress(taskId, {
       signal: controller.signal,
@@ -56,7 +66,14 @@ export function useTaskProgress(
         if (alive) setConnected(true)
       },
       onProgress: (next) => {
-        if (alive) setProgress(next)
+        if (!alive) return
+        setProgress(next)
+        // 后端在终局那一帧会置 final。据此立刻收口，不必等流关闭——
+        // 也不必等 HTTP 层超时。
+        if (next.final) {
+          sawFinalRef.current = true
+          setFinished(true)
+        }
       },
       onServerError: (msg) => {
         if (alive) setStreamError(msg)
@@ -78,11 +95,11 @@ export function useTaskProgress(
 
     return () => {
       alive = false
-      // 组件卸载时必须 abort，否则这条 HTTP 连接会一直挂到后端超时——
+      // 卸载或状态变化时必须 abort，否则这条 HTTP 连接会一直挂到后端超时——
       // 用户在任务列表里连点几个任务就能攒出一把泄漏的连接。
       controller.abort()
     }
-  }, [taskId])
+  }, [taskId, status])
 
   return { progress, connected, streamError, finished }
 }

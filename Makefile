@@ -66,7 +66,11 @@ web-install:
 web-dev:
 	cd web && npm run dev
 
-web-build:
+# web-build 依赖 web-types：src/types/api.generated.ts 是生成物、不进版本库，
+# 而 tsc 需要它。少了这条依赖，全新 clone 上 make web-build 直接编译失败，
+# 报一串「Type 'false' does not satisfy the constraint 'true'」——
+# 那是契约对账表在抱怨类型文件不存在，和真正的原因看起来毫无关系。
+web-build: web-types
 	cd web && npm run build
 
 # web-types 从 docs/swagger.json 重新生成前端的 API 类型。

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -100,6 +101,49 @@ func TestSPAServesHashedAssetWithLongCache(t *testing.T) {
 	}
 	if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
 		t.Errorf("Cache-Control = %q, 期望长缓存", cc)
+	}
+}
+
+// TestSPANormalizesBeforeDispatch 非规范写法不能绕过接口分流。
+//
+// 分流用原始路径、取文件用 path.Clean 后的路径时，`//api/v1/x` 会绕过分流判断
+// 落进 SPA 兜底，于是一个接口路径返回 200 + 一段 HTML。
+func TestSPANormalizesBeforeDispatch(t *testing.T) {
+	engine := newSPAEngine(t)
+
+	for _, target := range []string{
+		"//api/v1/not-exist",
+		"/api/v1/../v1/not-exist",
+		"//healthz/extra",
+		"/swagger/../swagger/nope",
+	} {
+		rec := do(t, engine, http.MethodGet, target)
+
+		if body := rec.Body.String(); body == "<!doctype html><div id=root></div>" {
+			t.Errorf("%s: 绕过了接口分流，拿到 index.html", target)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Errorf("%s: Content-Type = %q, 期望 JSON 信封", target, ct)
+		}
+	}
+}
+
+// TestSPADoesNotSwallowLookalikePaths 前缀匹配不能把「长得像」的前端路径一起吞掉。
+//
+// /mcp 与 /healthz 都是精确路由，不需要前缀匹配；用裸 HasPrefix 会让
+// /mcp-console、/healthzz 这类前端路径拿到 JSON 404 而不是前端的 404 页。
+func TestSPADoesNotSwallowLookalikePaths(t *testing.T) {
+	engine := newSPAEngine(t)
+
+	for _, target := range []string{"/mcp-console", "/healthzz", "/apidocs", "/swaggerui"} {
+		rec := do(t, engine, http.MethodGet, target)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: 状态码 = %d, 期望 200（应由前端渲染 404 页）", target, rec.Code)
+		}
+		if got := rec.Body.String(); got != "<!doctype html><div id=root></div>" {
+			t.Errorf("%s: 期望 index.html，实际 %q", target, got)
+		}
 	}
 }
 

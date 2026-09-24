@@ -3,8 +3,10 @@ package server
 import (
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,16 +14,21 @@ import (
 	"github.com/wt5858/trading-agents-go/internal/helpers/response"
 )
 
-// apiPrefixes 是「不属于前端」的路径前缀。
+// apiRoots 是「不属于前端」的路径前缀。
 //
-// 命中这些前缀的未匹配请求要继续返回 JSON 信封的 404，而不是被 SPA 兜底成
-// index.html。少了这道判断，一个拼错的接口路径会返回 200 + 一段 HTML，
-// 前端那边表现为 JSON.parse 失败——排查时看到的症状离真正的错误很远。
-var apiPrefixes = []string{"/api/", "/mcp", "/swagger/", "/healthz"}
+// 命中的未匹配请求要继续返回 JSON 信封的 404，而不是被 SPA 兜底成 index.html。
+// 少了这道判断，一个拼错的接口路径会返回 200 + 一段 HTML，调用方表现为
+// JSON.parse 失败——症状离真正的错误很远。
+var apiRoots = []string{"/api", "/mcp", "/swagger", "/healthz"}
 
+// isAPIPath 判断规范化之后的路径是否属于接口命名空间。两个细节都踩过：
+//
+// 调用方必须传规范化后的路径，否则 `//api/v1/x` 会绕过本判断拿到 index.html。
+// 匹配用「精确相等或后跟 /」而非裸前缀，否则 /mcp-console、/healthzz 这类
+// 前端路径会被一起吞掉。
 func isAPIPath(p string) bool {
-	for _, prefix := range apiPrefixes {
-		if strings.HasPrefix(p, prefix) {
+	for _, root := range apiRoots {
+		if p == root || strings.HasPrefix(p, root+"/") {
 			return true
 		}
 	}
@@ -40,7 +47,12 @@ func isAPIPath(p string) bool {
 // 这是 SPA 的固有取舍，不是缺陷。
 func SPA(assets fs.FS, available bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		reqPath := c.Request.URL.Path
+		// 先规范化，后面所有判断都基于这一个值。
+		// 分流与取文件用不同的路径是上一版的缺陷，见 isAPIPath 的注释。
+		reqPath := path.Clean(c.Request.URL.Path)
+		if !strings.HasPrefix(reqPath, "/") {
+			reqPath = "/" + reqPath
+		}
 
 		if isAPIPath(reqPath) {
 			response.FailWith(c, response.CodeNotFound, http.StatusNotFound, "接口不存在")
@@ -63,14 +75,10 @@ func SPA(assets fs.FS, available bool) gin.HandlerFunc {
 			return
 		}
 
-		name := strings.TrimPrefix(path.Clean(reqPath), "/")
+		name := strings.TrimPrefix(reqPath, "/")
 
-		// 入口页一律走 serveIndex，不要掉进下面的通用文件分支。
-		//
-		// "/" 解析出来就是 index.html，而它在产物里是真实存在的文件——交给
-		// http.ServeContent 的话能正常返回，但少了禁止缓存的响应头。症状要到
-		// 下一次发版才出现：浏览器拿着缓存的旧 index.html 去加载已经被新构建
-		// 删掉的哈希资源，整页白屏，且只有清缓存能恢复。
+		// 入口页一律走 serveIndex。"/" 解析出来就是 index.html，它在产物里真实存在，
+		// 交给 ServeContent 能返回但少了禁缓存头——症状要到下次发版才显形（白屏）。
 		if name == "" || name == "." || name == "index.html" {
 			serveIndex(c, assets)
 			return
@@ -96,8 +104,29 @@ func SPA(assets fs.FS, available bool) gin.HandlerFunc {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		}
 
-		http.ServeContent(c.Writer, c.Request, info.Name(), info.ModTime(), f.(io.ReadSeeker))
+		// comma-ok 而不是裸断言：embed.FS 的文件都实现了 Seek，今天恒成立，
+		// 但换成别的 fs.FS（zip、远端流）时裸断言就是一个本可以避免的 panic。
+		rs, ok := f.(io.ReadSeeker)
+		if !ok {
+			data, err := fs.ReadFile(assets, name)
+			if err != nil {
+				serveIndex(c, assets)
+				return
+			}
+			c.Data(http.StatusOK, mimeOf(name), data)
+			return
+		}
+		http.ServeContent(c.Writer, c.Request, info.Name(), info.ModTime(), rs)
 	}
+}
+
+// mimeOf 仅供上面那条回退分支使用。ServeContent 自己会推断类型，
+// 走不到它的时候才需要这个。
+func mimeOf(name string) string {
+	if t := mime.TypeByExtension(filepath.Ext(name)); t != "" {
+		return t
+	}
+	return "application/octet-stream"
 }
 
 // serveIndex 写出 index.html，并明确禁止缓存。

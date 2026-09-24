@@ -1,20 +1,30 @@
-import { App, Button, Card, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import {useState} from 'react'
+import {App, Button, Card, Radio, Space, Table, Tabs, Tag, Tooltip, Typography} from 'antd'
+import type {ColumnsType} from 'antd/es/table'
 
 import {
-  disableProvider,
-  enableProvider,
-  listProviders,
-  listSettings,
-  reloadConfig,
-  testProvider,
-  type SanitizedProvider,
-  type SanitizedSetting,
+    disableProvider,
+    enableProvider,
+    listProviders,
+    listSettings,
+    reloadConfig,
+    type SanitizedProvider,
+    type SanitizedSetting,
+    SETTING_SCOPES,
+    type SettingScope,
+    testProvider,
 } from '../../../api/config'
-import { ApiError } from '../../../api/errors'
-import { AsyncBoundary } from '../../../components/AsyncBoundary'
-import { TimeText } from '../../../components/TimeText'
-import { useAsyncData } from '../../../hooks/useAsyncData'
+import {ApiError} from '../../../api/errors'
+import {AsyncBoundary} from '../../../components/AsyncBoundary'
+import {TimeText} from '../../../components/TimeText'
+import {useAsyncData} from '../../../hooks/useAsyncData'
+
+const SCOPE_LABEL: Record<SettingScope, string> = {
+  llm: '模型调用',
+  market: '行情数据源',
+  sync: '同步任务',
+  feature: '功能开关',
+}
 
 function ProvidersTab() {
   const { message } = App.useApp()
@@ -120,8 +130,11 @@ function ProvidersTab() {
   )
 }
 
-function SettingsTab() {
-  const { data, loading, error, reload } = useAsyncData((signal) => listSettings(signal), [])
+function SettingsTab({ scope, onScopeChange }: { scope: SettingScope; onScopeChange: (s: SettingScope) => void }) {
+  const { data, loading, error, reload } = useAsyncData(
+    (signal) => listSettings(scope, signal),
+    [scope],
+  )
 
   const columns: ColumnsType<SanitizedSetting> = [
     { title: '键', dataIndex: 'key', width: 260, render: (v: string) => <code>{v}</code> },
@@ -144,27 +157,39 @@ function SettingsTab() {
   ]
 
   return (
-    <AsyncBoundary
-      loading={loading}
-      error={error}
-      onRetry={reload}
-      isEmpty={!!data && data.length === 0}
-      emptyText="没有配置项"
-    >
-      <Table<SanitizedSetting>
-        columns={columns}
-        dataSource={data ?? []}
-        rowKey={(row) => row.key!}
-        size="middle"
-        scroll={{ x: 1000 }}
-        pagination={false}
-      />
-    </AsyncBoundary>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      {/* scope 是后端必填参数，没有「全部」这个选项——缺了直接 40000。 */}
+      <Radio.Group value={scope} onChange={(e) => onScopeChange(e.target.value)}>
+        {SETTING_SCOPES.map((s) => (
+          <Radio.Button key={s} value={s}>
+            {SCOPE_LABEL[s]}
+          </Radio.Button>
+        ))}
+      </Radio.Group>
+
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        isEmpty={!!data && data.length === 0}
+        emptyText={`「${SCOPE_LABEL[scope]}」下没有配置项`}
+      >
+        <Table<SanitizedSetting>
+          columns={columns}
+          dataSource={data ?? []}
+          rowKey={(row) => row.key!}
+          size="middle"
+          scroll={{ x: 1000 }}
+          pagination={false}
+        />
+      </AsyncBoundary>
+    </Space>
   )
 }
 
 export function ConfigPage() {
   const { message } = App.useApp()
+  const [scope, setScope] = useState<SettingScope>('llm')
 
   return (
     <Card
@@ -173,14 +198,16 @@ export function ConfigPage() {
         <Button
           onClick={async () => {
             try {
-              await reloadConfig()
-              message.success('配置已重新加载')
+              // reload 是按域广播的，带上当前正在看的那个域。
+              // 200 只代表事件已发出，不代表各消费方已重读完，所以提示措辞是「已通知」。
+              await reloadConfig(scope, '从系统配置页手动触发')
+              message.success(`已通知各消费方重读「${SCOPE_LABEL[scope]}」配置`)
             } catch (err) {
               message.error(err instanceof ApiError ? err.message : '重载失败')
             }
           }}
         >
-          重新加载配置
+          重新加载「{SCOPE_LABEL[scope]}」
         </Button>
       }
     >
@@ -191,7 +218,11 @@ export function ConfigPage() {
       <Tabs
         items={[
           { key: 'providers', label: '模型供应商', children: <ProvidersTab /> },
-          { key: 'settings', label: '配置项', children: <SettingsTab /> },
+          {
+            key: 'settings',
+            label: '配置项',
+            children: <SettingsTab scope={scope} onScopeChange={setScope} />,
+          },
         ]}
       />
     </Card>

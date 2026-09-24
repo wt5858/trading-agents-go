@@ -1,10 +1,7 @@
-import type { components } from './api.generated'
+import type {components} from './api.generated'
 
-// 生成的类型里所有结构体都挤在 components['schemas'] 下，键名带包前缀
-// （'analysis.TaskView'）。页面里直接写那一长串既难读，改起来也要全局替换，
-// 所以在这里收一层别名——本文件是手写的，api.generated.ts 才是生成物。
-//
-// 加接口时的顺序：先 make web-types 重新生成，再来这里补一行别名。
+// 生成的类型键名带包前缀（'analysis.TaskView'），页面里写那一长串既难读又难改，
+// 所以在这里收一层别名。本文件手写，api.generated.ts 才是生成物。
 type S = components['schemas']
 
 // 身份

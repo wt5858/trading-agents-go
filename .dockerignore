@@ -17,6 +17,17 @@
 # 而镜像里用的是 web-builder 阶段自己 npm ci 装的那一份，这里带进去的没人用。
 web/node_modules
 
+# 宿主机上的前端产物与中间物。
+#
+# web/dist 排掉不只是省上下文：`COPY --from=web-builder` 是合并不是替换，
+# 宿主上次构建的旧 chunk 会存活并被 go:embed 一起编进二进制。
+web/dist
+web/.openapi3.json
+**/*.tsbuildinfo
+
+# air 的热加载产物，宿主架构的二进制，对 linux 镜像毫无用处。
+tmp/
+
 # 文档与杂项对运行时毫无用处
 *.md
 !README.md

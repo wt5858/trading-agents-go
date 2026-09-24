@@ -537,7 +537,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.port", 8080)
 	v.SetDefault("http.read_timeout", "30s")
 	// 写超时要大于一次完整分析的时间上限，否则 SSE 长连接会被服务端掐断。
-	v.SetDefault("http.write_timeout", "10m")
+	//
+	// 这条约束以前只写在注释里而值没跟上（10m < AnalysisMaxRuntime 30m），
+	// 后果是跑满的深度分析每 10 分钟被 net/http 砍断一次进度流。
+	// config_timeout_test.go 钉住了这个关系。
+	v.SetDefault("http.write_timeout", "35m")
 	v.SetDefault("http.allowed_origins", []string{"*"})
 
 	v.SetDefault("mysql.host", "127.0.0.1")

@@ -1,16 +1,16 @@
-import { useState } from 'react'
-import { App, Button, Card, Input, Popconfirm, Space, Table, Tag } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import {useState} from 'react'
+import {Alert, App, Button, Card, Input, Modal, Popconfirm, Space, Table, Tag} from 'antd'
+import type {ColumnsType} from 'antd/es/table'
 
-import { deactivateUser, listUsers, resetUserPassword } from '../../../api/user'
-import { ApiError } from '../../../api/errors'
-import { AsyncBoundary } from '../../../components/AsyncBoundary'
-import { useAsyncData } from '../../../hooks/useAsyncData'
-import { useAuth } from '../../../contexts/AuthContext'
-import type { UserView } from '../../../types/api'
+import {deactivateUser, listUsers, resetUserPassword} from '../../../api/user'
+import {ApiError} from '../../../api/errors'
+import {AsyncBoundary} from '../../../components/AsyncBoundary'
+import {useAsyncData} from '../../../hooks/useAsyncData'
+import {useAuth} from '../../../contexts/AuthContext'
+import type {UserView} from '../../../types/api'
 
 export function UserListPage() {
-  const { message, modal } = App.useApp()
+  const { message } = App.useApp()
   const { user: me } = useAuth()
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
@@ -21,20 +21,26 @@ export function UserListPage() {
     [keyword, page, pageSize],
   )
 
-  const onReset = async (id: number) => {
+  // 后端不生成临时密码：接口要求调用方传 newPassword，响应体只有 {reset:true}。
+  // 所以这里必须让管理员输入，而不是等着读一个不存在的字段。
+  const [resetTarget, setResetTarget] = useState<UserView | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [resetting, setResetting] = useState(false)
+
+  const onReset = async () => {
+    if (!resetTarget?.id || !newPassword) return
+    setResetting(true)
     try {
-      const result = (await resetUserPassword(id)) as { password?: string } | null
-      // 重置后的临时密码只在这一次响应里出现，刷新页面就再也拿不到了。
-      // 用 modal 而不是 message：后者会自己消失，管理员还没来得及复制。
-      modal.info({
-        title: '密码已重置',
-        content: result?.password
-          ? `临时密码：${result.password}（只显示这一次，请立即转交给用户）`
-          : '密码已重置，请通过其他渠道告知用户。',
-      })
+      await resetUserPassword(resetTarget.id, newPassword)
+      message.success(`已重置 ${resetTarget.username} 的密码，请通过安全渠道转交`)
+      setResetTarget(null)
+      setNewPassword('')
       reload()
     } catch (err) {
+      // 口令强度不足这类拒绝带着后端的具体说明，原样显示比「重置失败」有用。
       message.error(err instanceof ApiError ? err.message : '重置失败')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -66,13 +72,9 @@ export function UserListPage() {
         const isSelf = row.id === me?.userId
         return (
           <Space size={4}>
-            <Popconfirm
-              title="重置该用户的密码？"
-              description="旧密码立即失效。"
-              onConfirm={() => onReset(row.id!)}
-            >
-              <Button size="small">重置密码</Button>
-            </Popconfirm>
+            <Button size="small" onClick={() => setResetTarget(row)}>
+              重置密码
+            </Button>
             <Popconfirm
               title="停用这个账号？"
               description="该用户将无法登录，在途会话也会失效。"
@@ -137,6 +139,35 @@ export function UserListPage() {
           />
         </AsyncBoundary>
       </Space>
+
+      <Modal
+        open={!!resetTarget}
+        title={`重置 ${resetTarget?.username ?? ''} 的密码`}
+        okText="重置"
+        cancelText="取消"
+        confirmLoading={resetting}
+        okButtonProps={{ disabled: !newPassword }}
+        onOk={onReset}
+        onCancel={() => {
+          setResetTarget(null)
+          setNewPassword('')
+        }}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="旧密码立即失效，该用户的在途会话也会被吊销。"
+        />
+        <Input.Password
+          aria-label="新密码"
+          placeholder="新密码"
+          autoComplete="new-password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          onPressEnter={onReset}
+        />
+      </Modal>
     </Card>
   )
 }

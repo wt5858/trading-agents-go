@@ -19,7 +19,11 @@ tmp_dir = "tmp"
   # tmp 必须排除，否则写进去的二进制会触发下一轮重建，无限循环。
   # docs 刻意**不**排除：docs.go 被 server 包空导入、编译进二进制，
   # 跑完 make swagger 之后就该重启，否则 /swagger 上还是旧的那份。
-  exclude_dir = ["tmp", "dist", "out", ".git", ".idea", "logs"]
+  # web/node_modules 与 web/dist 必须写全相对路径：exclude_dir 是精确路径匹配，
+  # 只写 "node_modules" 匹配不到嵌在 web/ 下面的那个。而它有 245MB、上万个文件，
+  # air 启动时会把整棵子树走一遍并逐目录算校验和——症状是 make dev 敲下去之后
+  # 几十秒里服务都起不来，看着像卡死。
+  exclude_dir = ["tmp", "dist", "out", ".git", ".idea", "logs", "web/node_modules", "web/dist"]
   exclude_regex = ["_test\\.go"]
 
   # 只有内容真的变了才重建。编辑器保存时的 touch、gofmt 的原样写回，

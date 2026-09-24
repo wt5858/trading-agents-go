@@ -3,12 +3,15 @@ package domain_services
 import (
 	"context"
 
+	"go.uber.org/zap"
+
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/entities"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/repositories"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/domain_kernel/domain_event"
 	shared_vo "github.com/wt5858/trading-agents-go/internal/domain_kernel/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
+	"github.com/wt5858/trading-agents-go/internal/helpers/logger"
 	"github.com/wt5858/trading-agents-go/pkg/idx"
 )
 
@@ -185,6 +188,14 @@ func (s *AnalysisService) Cancel(ctx context.Context, op Operator, taskID string
 	// 名额随取消归还。放在落库之后：落库失败时任务仍在运行，名额不该被释放。
 	// 这里和 worker 的收尾路径可能同时触发，但凭据机制保证只有一方真正扣减。
 	s.release(ctx, task.UserID, task.ID)
+
+	// 把终局快照推给正在看进度的订阅者。失败路径由 worker 的 finishFailed 顺手推了
+	// 一帧，取消路径原先没有，于是「盯着进度时任务在别处被取消」会让页面冻住。
+	// 推送失败不回滚——任务已经取消掉了，订阅者仍会在重连或刷新时拿到终态。
+	if err := s.progress.Publish(ctx, task.ID, task.Progress); err != nil {
+		logger.FromContext(ctx).Warn("推送取消进度失败",
+			zap.String("task_id", task.ID), zap.Error(err))
+	}
 
 	s.publish(ctx, task)
 	return nil

@@ -1,5 +1,5 @@
-import { api } from './client'
-import type { components } from '../types/api.generated'
+import {api, type Page} from './client'
+import type {components} from '../types/api.generated'
 
 type S = components['schemas']
 export type FieldDictView = S['screening.FieldDictView']
@@ -23,8 +23,15 @@ export function listTemplates(signal?: AbortSignal): Promise<TemplateView[]> {
   return api.get<TemplateView[]>('/screening/templates', { signal })
 }
 
-export function listPublicTemplates(signal?: AbortSignal): Promise<TemplateView[]> {
-  return api.get<TemplateView[]>('/screening/templates/public', { signal })
+// 注意：公开模板是**分页**的，而同上下文的 /screening/templates 返回裸数组。
+export function listPublicTemplates(
+  params: { page?: number; pageSize?: number } = {},
+  signal?: AbortSignal,
+): Promise<Page<TemplateView>> {
+  return api.get<Page<TemplateView>>('/screening/templates/public', {
+    query: { ...params },
+    signal,
+  })
 }
 
 export function createTemplate(body: TemplateRequest): Promise<TemplateView> {

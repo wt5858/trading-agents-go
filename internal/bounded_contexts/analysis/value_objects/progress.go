@@ -55,6 +55,16 @@ type Progress struct {
 	Message    string          `json:"message"`
 	StartedAt  time.Time       `json:"started_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
+
+	// Final 表示这是任务终局的那一份快照，不会再有后续更新。
+	//
+	// 它与「DoneSteps >= TotalSteps」不是一回事，这正是它存在的理由：成功收尾时
+	// 两者同时成立，但**失败与取消同样终局，步骤却没跑完**。SSE 处理器原先拿步数
+	// 当收流判据，于是失败/取消时流永不收口，前端状态永远停在「运行中」。
+	//
+	// omitempty 兼容已落库的旧快照：它们反序列化后为 false，而那些记录要么本就在跑，
+	// 要么是已终结的老任务（订阅时走 sub.Terminal 判定）。
+	Final bool `json:"final,omitempty"`
 }
 
 // NewProgress 依据请求推导完整步骤列表。
@@ -133,6 +143,18 @@ func (p Progress) MarkDone() Progress {
 	}
 	out.CurrentIdx = len(out.Steps)
 	out.Message = "分析完成"
+	out.Final = true
+	return out.settled(time.Now())
+}
+
+// MarkFinal 标记终局但**不**把步骤置完成，供失败与取消使用。
+//
+// 不复用 MarkDone：那会让步骤条全部变绿，而任务实际是在某一步倒下的——
+// 把失败画成成功比不画更糟。
+func (p Progress) MarkFinal(msg string) Progress {
+	out := p.clone()
+	out.Message = msg
+	out.Final = true
 	return out.settled(time.Now())
 }
 

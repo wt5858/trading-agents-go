@@ -428,8 +428,14 @@ func (h *AnalysisHandler) StreamProgress(c *gin.Context) {
 	}
 }
 
+// progressFinished 判断这份快照是不是终局，决定要不要收流。
+//
+// Final 是权威判据，成功/失败/取消三条路径都会置它。后半段只为兼容改动前落库的
+// 旧快照（没有 final 字段），等旧数据轮空后可以删掉。
+//
+// 原先只有后半段，于是失败与取消——步数没跑满但任务已终结——流永不收口。
 func progressFinished(p value_objects.Progress) bool {
-	return p.TotalSteps > 0 && p.DoneSteps >= p.TotalSteps
+	return p.Final || (p.TotalSteps > 0 && p.DoneSteps >= p.TotalSteps)
 }
 
 func writeProgressEvent(c *gin.Context, p value_objects.Progress) bool {
@@ -548,6 +554,10 @@ type progressView struct {
 	ETASeconds int64                `json:"etaSeconds"`
 	Message    string               `json:"message"`
 	UpdatedAt  time.Time            `json:"updatedAt"`
+	// Final 标记这是终局快照，成功、失败、取消三种收尾都会置它。
+	// SSE 订阅方据此立刻收口，不必等连接关闭——也就不会在任务已经失败时
+	// 还把状态显示成「运行中」。
+	Final bool `json:"final"`
 } // @name analysis.ProgressView
 
 func toProgressView(p value_objects.Progress) *progressView {
@@ -563,6 +573,7 @@ func toProgressView(p value_objects.Progress) *progressView {
 		ETASeconds: p.ETASeconds,
 		Message:    p.Message,
 		UpdatedAt:  p.UpdatedAt,
+		Final:      p.Final,
 	}
 }
 

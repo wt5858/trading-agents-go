@@ -1,5 +1,5 @@
-import { api, type Page } from './client'
-import type { components } from '../types/api.generated'
+import {api, type Page} from './client'
+import type {components} from '../types/api.generated'
 
 type S = components['schemas']
 export type SanitizedProvider = S['domain_services.SanitizedProvider']
@@ -52,14 +52,24 @@ export function testProvider(id: number): Promise<ProbeResult> {
   return api.post<ProbeResult>(`/config/providers/${id}/test`)
 }
 
-export function listSettings(signal?: AbortSignal): Promise<SanitizedSetting[]> {
-  return api.get<SanitizedSetting[]>('/config/settings', { signal })
+/** 配置域。取值见 system_config/value_objects/setting.go 的 SettingScope。 */
+export const SETTING_SCOPES = ['llm', 'market', 'sync', 'feature'] as const
+export type SettingScope = (typeof SETTING_SCOPES)[number]
+
+// scope 是必填的，缺了后端直接回 40000「必须指定配置域」。
+export function listSettings(
+  scope: SettingScope,
+  signal?: AbortSignal,
+): Promise<SanitizedSetting[]> {
+  return api.get<SanitizedSetting[]>('/config/settings', { query: { scope }, signal })
 }
 
 export function getSnapshot(signal?: AbortSignal): Promise<ConfigSnapshot> {
   return api.get<ConfigSnapshot>('/config/snapshot', { signal })
 }
 
-export function reloadConfig(): Promise<unknown> {
-  return api.post('/config/reload')
+// scope 必填，reason 可选。不带 body 的话 ShouldBindJSON 直接 400。
+// 200 只代表事件已发出，不代表各消费方已经重读完——后端注释里写明了这一点。
+export function reloadConfig(scope: SettingScope, reason?: string): Promise<unknown> {
+  return api.post('/config/reload', { scope, reason })
 }

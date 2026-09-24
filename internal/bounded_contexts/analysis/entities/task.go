@@ -169,7 +169,8 @@ func (t *Task) Fail(reason string, maxAttempts int) error {
 	t.setStatus(value_objects.StatusFailed, now)
 	t.ErrMsg = reason
 	t.FinishedAt = &now
-	t.Progress = t.Progress.WithMessage("分析失败")
+	// MarkFinal 而不是 WithMessage：失败同样是终局，SSE 靠 Progress.Final 决定收流。
+	t.Progress = t.Progress.MarkFinal("分析失败")
 	t.AddDomainEvent(domain_events.NewOnTaskFailed(
 		t.ID, t.UserID, t.BatchID, reason, t.Attempts, t.Retryable(maxAttempts)))
 	return nil
@@ -183,7 +184,7 @@ func (t *Task) Cancel() error {
 	now := time.Now()
 	t.setStatus(value_objects.StatusCanceled, now)
 	t.FinishedAt = &now
-	t.Progress = t.Progress.WithMessage("已取消")
+	t.Progress = t.Progress.MarkFinal("已取消")
 	t.AddDomainEvent(domain_events.NewOnTaskCanceled(t.ID, t.UserID, t.BatchID))
 	return nil
 }

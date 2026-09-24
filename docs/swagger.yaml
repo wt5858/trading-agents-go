@@ -154,6 +154,12 @@ definitions:
         type: integer
       etaSeconds:
         type: integer
+      final:
+        description: |-
+          Final 标记这是终局快照，成功、失败、取消三种收尾都会置它。
+          SSE 订阅方据此立刻收口，不必等连接关闭——也就不会在任务已经失败时
+          还把状态显示成「运行中」。
+        type: boolean
       message:
         type: string
       percent:

@@ -1,11 +1,5 @@
-import { ApiError, BizCode, networkError } from './errors'
-import {
-  clearTokens,
-  getAccessToken,
-  getRefreshToken,
-  isAccessTokenStale,
-  setTokens,
-} from './tokens'
+import {ApiError, BizCode, networkError} from './errors'
+import {clearTokens, getAccessToken, getRefreshToken, isAccessTokenStale, setTokens,} from './tokens'
 
 /** 所有业务接口都挂在这个前缀下（/mcp、/healthz、/swagger 不在其列）。 */
 export const API_PREFIX = '/api/v1'
@@ -58,6 +52,9 @@ export function buildQuery(params?: QueryParams): string {
 // 被随机踢出登录。让后来者共享第一个 Promise 就没有这个问题。
 let inflightRefresh: Promise<void> | null = null
 
+/** 续期请求的超时。取值只需明显短于用户的忍耐极限，不必和后端超时对齐。 */
+const REFRESH_TIMEOUT_MS = 15_000
+
 async function refreshAccessToken(): Promise<void> {
   if (inflightRefresh) return inflightRefresh
 
@@ -73,6 +70,11 @@ async function refreshAccessToken(): Promise<void> {
     }
 
     let res: Response
+    // 必须有超时。所有等待续期的请求共享这一个 Promise（单飞），所以后端在这里
+    // 卡住就不是「一个请求慢」，而是整个应用的请求全部永久挂起，页面上所有
+    // loading 转圈不停、也不报错。fetch 默认没有超时，得自己加。
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), REFRESH_TIMEOUT_MS)
     try {
       // 刻意用裸 fetch 而不是下面的 request()：request 在 401 时会来调本函数，
       // 走 request 就是一个无限递归。
@@ -80,10 +82,14 @@ async function refreshAccessToken(): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
+        signal: timeout.signal,
       })
     } catch (cause) {
       // 网络抖动不该把用户踢下线——令牌可能还是好的，保留它，让调用方自己失败重试。
+      // 超时走的也是这条：同样保留令牌，因为超时说明不了凭据有没有问题。
       throw networkError(cause)
+    } finally {
+      clearTimeout(timer)
     }
 
     const body = (await res.json().catch(() => null)) as Envelope<{
@@ -93,12 +99,24 @@ async function refreshAccessToken(): Promise<void> {
     }> | null
 
     if (!res.ok || !body || body.code !== BizCode.OK || !body.data) {
-      // 到这里是后端明确拒绝了这个 refreshToken（过期、已吊销、账号停用）。
-      // 清空令牌会触发 tokens 的订阅者，AuthContext 据此把用户导去登录页。
-      clearTokens()
+      // 只有后端**明确否定凭据**时才清空令牌。
+      //
+      // 判据曾经是 `!res.ok`，把 5xx 也算成「令牌被拒绝」：用户刷新页面必然触发一次
+      // refresh，此刻后端只要抖一下（Redis 超时 → HTTP 500）人就被踢回登录页，
+      // 而服务端会话其实还活着。这也和上面网络异常分支的标准矛盾。
+      const credentialRejected =
+        res.status === 401 ||
+        res.status === 403 ||
+        body?.code === BizCode.Unauthorized ||
+        body?.code === BizCode.Forbidden
+      if (credentialRejected) {
+        clearTokens()
+      }
       throw new ApiError({
-        code: body?.code ?? BizCode.Unauthorized,
-        message: body?.message || '登录已失效，请重新登录',
+        code: body?.code ?? (credentialRejected ? BizCode.Unauthorized : BizCode.Unavailable),
+        message:
+          body?.message ||
+          (credentialRejected ? '登录已失效，请重新登录' : '服务暂时不可用，请稍后重试'),
         httpStatus: res.status,
         requestId: res.headers.get('X-Request-ID'),
       })
@@ -121,8 +139,8 @@ async function refreshAccessToken(): Promise<void> {
 /**
  * 确保手上有一个没过期的访问令牌。
  *
- * 主动续期而不是等 401：等 401 意味着每次令牌过期都要浪费一个往返，而且 SSE
- * 这种长连接拿到 401 之后没法「重试一次」——连接已经建立又断掉，页面上会闪一下。
+ * 主动续期而不是等 401：后者每次都浪费一个往返，而且 SSE 这种长连接拿到 401
+ * 之后没法「重试一次」。
  */
 export async function ensureFreshAccessToken(): Promise<void> {
   if (!isAccessTokenStale()) return
@@ -142,19 +160,25 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** 置 true 时不带令牌、不做刷新重试。只有登录接口用得上。 */
   anonymous?: boolean
+  /**
+   * 置 true 时跳过请求前的主动续期，但仍然带上手头的令牌。
+   *
+   * 给登出用：续期失败不该让登出请求发不出去，否则本地清干净了、
+   * 服务端会话还活着。
+   */
+  skipRefresh?: boolean
 }
 
 /**
  * 发一次请求并把信封剥掉，直接返回 data。
  *
- * 失败一律抛 ApiError——包括 HTTP 200 但 code 非 0 的情况。让调用方用 try/catch
- * 而不是每次都判一遍 code，是因为「忘了判 code」是静默的：页面会拿着一个
- * undefined 的 data 继续渲染，症状出现在离错误很远的地方。
+ * 失败一律抛 ApiError，包括 HTTP 200 但 code 非 0 的情况——「忘了判 code」是静默的，
+ * 页面会拿着 undefined 继续渲染，症状出现在离错误很远的地方。
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, query, signal, anonymous = false } = options
+  const { method = 'GET', body, query, signal, anonymous = false, skipRefresh = false } = options
 
-  if (!anonymous) {
+  if (!anonymous && !skipRefresh) {
     await ensureFreshAccessToken()
   }
 

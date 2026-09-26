@@ -7,13 +7,26 @@ import (
 	"github.com/wt5858/trading-agents-go/internal/helpers/custom_errors"
 )
 
-// Depth 是研究深度值对象，直接决定启用的阶段与辩论轮次。
+// Depth 是研究深度值对象。它只决定两件事：**启用哪些阶段**，以及**默认几位分析师**。
+//
+// 它不改变辩论轮数——多空辩论在任何深度下都是固定的一轮三人
+// （多头、空头、研究经理），见 entities.NewPlan。此处曾注明「深度决定辩论轮次」、
+// 且把 5 描述成「多轮辩论」，那是不存在的行为；照着它解释实验结果会得出错误结论。
+//
+// 各档的真实构成（阶段条件见下面两个谓词，分析师人数见 DefaultAnalystsFor）：
+//
+//	1     分析师(2) → 交易员
+//	2     分析师(4) → 多空辩论 → 交易员
+//	3     分析师(4) → 多空辩论 → 交易员 → 三视角风控 + 风控经理终裁
+//	4, 5  阶段与 3 完全相同，只是默认分析师扩到 6 位
+//
+// 注意 2 与 3 的默认分析师阵容是同一批四位，因此这两档之间**唯一的差别就是风控阶段**。
 type Depth int
 
 const (
-	DepthQuick      Depth = 1 // 仅分析师
-	DepthStandard   Depth = 3 // 分析师 + 辩论 + 交易决策
-	DepthExhaustive Depth = 5 // 全流程 + 多轮辩论 + 风控
+	DepthQuick      Depth = 1 // 分析师 + 交易决策
+	DepthStandard   Depth = 3 // 再加多空辩论与风控阶段
+	DepthExhaustive Depth = 5 // 阶段同 3，分析师阵容扩到 6 位
 )
 
 func (d Depth) Valid() bool { return d >= 1 && d <= 5 }

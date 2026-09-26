@@ -1,23 +1,24 @@
-import { Suspense, useMemo } from 'react'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { App, Badge, Button, Layout, Menu, Space, Spin, Typography } from 'antd'
+import {Suspense, useMemo} from 'react'
+import {Link, Outlet, useLocation, useNavigate} from 'react-router-dom'
+import {App, Badge, Button, Layout, Menu, Space, Spin, Typography} from 'antd'
 import {
-  BarChartOutlined,
-  BellOutlined,
-  ClockCircleOutlined,
-  FileTextOutlined,
-  FilterOutlined,
-  LineChartOutlined,
-  LogoutOutlined,
-  SettingOutlined,
-  StarOutlined,
-  TeamOutlined,
-  WalletOutlined,
+    BarChartOutlined,
+    BellOutlined,
+    ClockCircleOutlined,
+    ExperimentOutlined,
+    FileTextOutlined,
+    FilterOutlined,
+    LineChartOutlined,
+    LogoutOutlined,
+    SettingOutlined,
+    StarOutlined,
+    TeamOutlined,
+    WalletOutlined,
 } from '@ant-design/icons'
 
-import { unreadCount } from '../api/notification'
-import { useAuth } from '../contexts/AuthContext'
-import { useAsyncData } from '../hooks/useAsyncData'
+import {unreadCount} from '../api/notification'
+import {useAuth} from '../contexts/AuthContext'
+import {useAsyncData} from '../hooks/useAsyncData'
 
 interface NavItem {
   key: string
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { key: '/screening', icon: <FilterOutlined />, label: '选股筛选' },
   { key: '/analysis', icon: <BarChartOutlined />, label: '分析任务' },
   { key: '/reports', icon: <FileTextOutlined />, label: '报告' },
+  { key: '/evaluations', icon: <ExperimentOutlined />, label: '回测评估' },
   { key: '/paper', icon: <WalletOutlined />, label: '模拟交易' },
   { key: '/scheduling', icon: <ClockCircleOutlined />, label: '定时任务' },
   { key: '/notifications', icon: <BellOutlined />, label: '通知' },

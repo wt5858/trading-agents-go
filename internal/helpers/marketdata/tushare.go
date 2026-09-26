@@ -470,6 +470,9 @@ func (p *TushareProvider) FetchFinancials(ctx context.Context, code shared_vo.St
 		f := value_objects.Financial{
 			Code:       code,
 			ReportDate: reportDate,
+			// ann_date 一直在请求字段里，此前却从未被读出来——于是回测时
+			// 「这份财报当天公布了没有」只能靠报告期猜，而那是一处未来函数。
+			AnnounceDate: parseTushareTradeDate(toString(row["ann_date"])),
 			// 口径由报告期推断（12-31 是年报），规则归 VO 所有，这里不再自己判断月份。
 			PeriodType: value_objects.PeriodTypeOfReportDate(reportDate),
 			EPS:        toDecimal(row["eps"]),

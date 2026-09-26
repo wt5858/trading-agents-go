@@ -93,7 +93,8 @@ type promptView struct {
 	Industry  string
 	Market    string
 	TradeDate string
-	Depth     int
+	// 这里刻意没有 Depth：它是编排参数，不是标的信息，
+	// 成员不该知道自己跑在哪一档深度下。理由见 prompt_templates.go 的包注释。
 
 	Quote      string
 	Indicators string
@@ -102,6 +103,9 @@ type promptView struct {
 	Social     string
 	Missing    string
 	Tools      string
+	// TrackRecord 是本系统对该标的历史建议的兑现情况。
+	// 默认为空串（模板里的 {{if}} 会整段跳过），由 EngineConfig.MemoryEnabled 开启。
+	TrackRecord string
 
 	// DecisionBlock 是风控经理必须照抄的结构化块模板。
 	// 它和解析器共用同一个常量，不会出现「提示词改了解析器没改」的脱节。
@@ -129,13 +133,13 @@ func newPromptView(turn entities.Turn) promptView {
 		Industry:      orPlaceholder(s.Market.Industry, "未知行业"),
 		Market:        s.Code.Market.DisplayName(),
 		TradeDate:     s.TradeDate.String(),
-		Depth:         s.Depth.Int(),
 		Quote:         formatQuote(s.Market.Quote),
 		Indicators:    formatIndicators(s.Market.Indicators),
 		Financials:    formatFinancials(s.Market.Financials),
 		News:          formatNews(s.Market.News),
 		Social:        formatSocial(s.Market.Social),
 		Missing:       formatMissing(s.Market.Missing),
+		TrackRecord:   s.Market.TrackRecord,
 		Tools:         formatTools(turn.Contract.Access),
 		DecisionBlock: value_objects.DecisionBlockTemplate,
 		reports:       reports,

@@ -87,9 +87,37 @@ func toChainLink(t value_objects.TurnRecord) analysis_vo.ChainLink {
 		// 单价表会随厂商调价而变，重算出来的历史成本不是当初真花掉的钱。
 		CostUSD: t.Usage.CostUSD,
 
+		Model:      t.Model,
+		ToolRounds: t.ToolRounds,
+		Truncated:  t.Truncated,
+		CacheHit:   t.CacheHit,
+		ToolCalls:  toChainToolCalls(t.ToolCalls),
+
 		Failed:     t.Failed,
 		FailReason: t.FailReason,
 	}
+}
+
+// toChainToolCalls 把工具轨迹翻成 analysis 上下文的形状。
+// 空输入返回 nil 而不是空切片：绝大多数发言不调工具，
+// 让它们在 JSON 里输出 [] 只是给每条链平白加上十四个空数组。
+func toChainToolCalls(in []value_objects.ToolCallRecord) []analysis_vo.ChainToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]analysis_vo.ChainToolCall, 0, len(in))
+	for _, r := range in {
+		out = append(out, analysis_vo.ChainToolCall{
+			Round:       r.Round,
+			Name:        r.Name.String(),
+			OK:          r.OK,
+			FailReason:  r.FailReason,
+			DurationS:   msToSeconds(r.DurationMS()),
+			ResultChars: r.ResultChars,
+			Truncated:   r.Truncated,
+		})
+	}
+	return out
 }
 
 // stanceOf 由成员身份决定立场。

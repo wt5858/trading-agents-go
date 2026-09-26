@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -182,6 +183,90 @@ func (repo *AnalysisRunRepository) ListSummaries(
 		rows = rows[:limit]
 	}
 	return dtos.ToDomainAnalysisRunSummaries(rows), truncated, nil
+}
+
+// ExistingRunIDs 从给定的一批 ID 里挑出已经落库且未失败的那些。
+//
+// 供批量回填做断点续跑：一次查询判掉整批，而不是每格跑之前查一次——
+// 几百格就是几百次往返，而这批查询恰好发生在决定要不要花钱之前，
+// 让它慢等于让「估算成本」这一步比跑分析本身还久。
+//
+// 只认未失败的运行：一次跑挂的记录同样占着那个 _id，
+// 把它当成「已完成」会让所有失败的格子永远不会被重试，
+// 而它们恰恰是最需要重跑的那些。
+func (repo *AnalysisRunRepository) ExistingRunIDs(ctx context.Context, ids []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(ids))
+	if repo.db == nil || len(ids) == 0 {
+		return out, nil
+	}
+	cursor, err := repo.db.Collection(collAnalysisRuns).Find(ctx,
+		bson.M{"_id": bson.M{"$in": ids}, "failed": false},
+		options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, custom_errors.Internal("查询已有分析轨迹失败").Wrap(err)
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var rows []struct {
+		ID string `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return nil, custom_errors.Internal("解析已有分析轨迹失败").Wrap(err)
+	}
+	for _, r := range rows {
+		out[r.ID] = struct{}{}
+	}
+	return out, nil
+}
+
+// RunCostStats 是历史运行的成本统计，用于估算一批回填要花多少钱。
+type RunCostStats struct {
+	// Samples 是统计所基于的运行条数。它必须和均值一起交给调用方：
+	// 基于 3 条样本算出的「平均成本」不该被当成预算依据，
+	// 而只报一个均值就等于把这个判断从用户手里拿走了。
+	Samples int
+	AvgUSD  decimal.Decimal
+	MaxUSD  decimal.Decimal
+}
+
+// RunCostStatsOf 按深度统计历史运行的单次成本。
+//
+// 按深度分组是必要的：depth 1 与 depth 3 之间差着辩论与风控两个阶段，
+// 成本相差数倍，混在一起算出的均值对哪一档都不适用。
+//
+// 排除失败运行与缓存命中为零成本的极端值都不做——失败的运行也是真花了钱的，
+// 而回填过程中同样会有失败。要估的是「跑一批下来实际扣多少」，不是理想值。
+func (repo *AnalysisRunRepository) RunCostStatsOf(ctx context.Context, depth int) (RunCostStats, error) {
+	if repo.db == nil {
+		return RunCostStats{}, custom_errors.Unavailable("未启用 MongoDB，分析轨迹不可用")
+	}
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.M{"depth": depth}}},
+		bson.D{{Key: "$group", Value: bson.M{
+			"_id": nil,
+			"n":   bson.M{"$sum": 1},
+			"avg": bson.M{"$avg": "$cost_usd"},
+			"max": bson.M{"$max": "$cost_usd"},
+		}}},
+	}
+	cursor, err := repo.db.Collection(collAnalysisRuns).Aggregate(ctx, pipeline)
+	if err != nil {
+		return RunCostStats{}, custom_errors.Internal("统计历史成本失败").Wrap(err)
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var rows []struct {
+		N   int             `bson:"n"`
+		Avg decimal.Decimal `bson:"avg"`
+		Max decimal.Decimal `bson:"max"`
+	}
+	if err := cursor.All(ctx, &rows); err != nil {
+		return RunCostStats{}, custom_errors.Internal("解析历史成本失败").Wrap(err)
+	}
+	if len(rows) == 0 {
+		return RunCostStats{}, nil
+	}
+	return RunCostStats{Samples: rows[0].N, AvgUSD: rows[0].Avg, MaxUSD: rows[0].Max}, nil
 }
 
 // FindByRunID 按任务 ID 取一次运行的轨迹。

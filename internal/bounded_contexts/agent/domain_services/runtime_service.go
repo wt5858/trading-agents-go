@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -23,6 +24,12 @@ type RuntimeConfig struct {
 	MaxToolRounds int
 	// ToolFanOutLimit 是同一轮里并行执行工具的上限。
 	ToolFanOutLimit int
+	// MaxToolCallsPerRound 是单轮里允许真正执行的工具调用**总数**上限。
+	//
+	// 它与 ToolFanOutLimit 管的不是一回事，这一点极易混淆：后者是并发信号量，
+	// 只控制同时有几个在跑，一轮里发来 50 个调用照样会全部执行完，
+	// 只是分批而已。真正决定这一轮要花多少钱、往上下文里塞多少字的是总数。
+	MaxToolCallsPerRound int
 	// MaxToolResultRunes 是单个工具结果允许占用的字符数上限。
 	MaxToolResultRunes int
 }
@@ -40,6 +47,17 @@ const (
 	// 两层扇出相乘才是真正的并发数——4 × 3 = 12 个在途查询是数据库能稳住的量级，
 	// 不设限则是 12 × N，一次批量分析足以打满连接池。
 	defaultToolFanOut = 4
+
+	// defaultMaxToolCallsPerRound 是单轮工具调用总数的上限。
+	//
+	// 取 8：注册表一共只有六个工具，一轮要超过八次，必然是在用不同参数
+	// 反复调同一个（模型很爱这么干，尤其是 K 线）。截掉的部分不会静默消失，
+	// 会以一条「本轮调用过多」的工具结果回灌，模型下一轮自然会收敛。
+	//
+	// 没有这个上限时，唯一的约束是 MaxToolRounds——而轮数管不住单轮的宽度：
+	// 一轮五十个调用就是五十次数据库查询与五十段回灌文本，
+	// 足够在一轮之内撞上上下文长度上限。
+	defaultMaxToolCallsPerRound = 8
 
 	// defaultMaxToolResultRunes 是单个工具结果的字符上限。
 	//
@@ -61,6 +79,9 @@ func (c RuntimeConfig) normalized() RuntimeConfig {
 	}
 	if c.ToolFanOutLimit <= 0 {
 		c.ToolFanOutLimit = defaultToolFanOut
+	}
+	if c.MaxToolCallsPerRound <= 0 {
+		c.MaxToolCallsPerRound = defaultMaxToolCallsPerRound
 	}
 	if c.MaxToolResultRunes <= 0 {
 		c.MaxToolResultRunes = defaultMaxToolResultRunes
@@ -161,6 +182,7 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		// 而「它到底看到了多长的输入」正是这类失败的第一个排查问题。
 		return entities.TurnResult{
 			Usage:        resp.Usage,
+			ToolCalls:    resp.ToolCalls,
 			Model:        resp.Model,
 			PromptChars:  promptChars,
 			PromptDigest: promptDigest,
@@ -178,6 +200,7 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		Content:      content,
 		Usage:        resp.Usage,
 		ToolRounds:   resp.ToolRounds,
+		ToolCalls:    resp.ToolCalls,
 		Truncated:    resp.Truncated,
 		Model:        resp.Model,
 		PromptChars:  promptChars,
@@ -253,14 +276,18 @@ func (s *RuntimeService) chat(
 	req value_objects.ChatRequest,
 	subject ToolInvocation,
 ) (resp value_objects.ChatResponse, err error) {
-	// 解析出来的模型名统一在出口回填，而不是在下面七个 return 上各写一遍。
-	// 这个循环的退出点会随着厂商的怪异行为继续增加（见下面那条「没给工具也硬发工具调用」），
-	// 每加一个出口就要记得补一次 Model，漏掉的那一个不会报错，
-	// 只会让某一类失败的轨迹里模型名神秘地空着。
-	defer func() { resp.Model = model }()
-
 	messages := append([]value_objects.Message(nil), req.Messages...)
 	var usage value_objects.Usage
+	var toolTrace []value_objects.ToolCallRecord
+
+	// 解析出来的模型名与工具轨迹统一在出口回填，而不是在下面七个 return 上各写一遍。
+	// 这个循环的退出点会随着厂商的怪异行为继续增加（见下面那条「没给工具也硬发工具调用」），
+	// 每加一个出口就要记得补一次，漏掉的那一个不会报错，
+	// 只会让某一类失败的轨迹里模型名神秘地空着、或者工具调用凭空消失。
+	defer func() {
+		resp.Model = model
+		resp.ToolCalls = toolTrace
+	}()
 
 	maxRounds := req.MaxToolRounds
 	for round := 0; round <= maxRounds; round++ {
@@ -311,7 +338,13 @@ func (s *RuntimeService) chat(
 		}
 
 		messages = append(messages, value_objects.AssistantToolCallMessage(res.Content, res.ToolCalls))
-		results, err := s.invokeTools(ctx, res.ToolCalls, req.Access, subject)
+		results, records, err := s.invokeTools(ctx, res.ToolCalls, req.Access, subject)
+		// 轮次由这里回填而不是传进 invokeTools：那个方法执行的是「同一轮里的一批调用」，
+		// 它没有理由知道自己是第几轮，传进去只会多一个与它职责无关的参数。
+		for i := range records {
+			records[i].Round = round
+		}
+		toolTrace = append(toolTrace, records...)
 		if err != nil {
 			return value_objects.ChatResponse{Messages: messages, Usage: usage}, err
 		}
@@ -331,33 +364,88 @@ func (s *RuntimeService) chat(
 //
 // 顺序必须与调用顺序一致：OpenAI 协议要求每个 tool 结果紧跟其 tool_call，
 // 顺序错乱会被判为无效请求。Settle 保证结果按下标对齐，这里依赖的正是那条保证。
+// 第二个返回值是与 calls 等长、同序的调用明细，供轨迹记账。
+// 它必须在这里产出而不是由调用方从 Messages 反推：失败的工具在 Messages 里
+// 已经被改写成一句给模型看的说明文字，与「查到了但结果就是这句话」无法区分。
 func (s *RuntimeService) invokeTools(
 	ctx context.Context,
 	calls []value_objects.ToolCall,
 	access value_objects.DataAccess,
 	subject ToolInvocation,
-) ([]value_objects.Message, error) {
-	outcomes, err := concurrency.Settle(ctx, calls, s.cfg.ToolFanOutLimit,
-		func(ctx context.Context, call value_objects.ToolCall) (string, error) {
-			return s.invokeOne(ctx, call, access, subject)
+) ([]value_objects.Message, []value_objects.ToolCallRecord, error) {
+	// 超出单轮上限的调用不执行，但**仍然要回一条结果**。
+	//
+	// OpenAI 与 Anthropic 都要求每个 tool_call 恰好对应一条 tool 消息，
+	// 少一条整个请求会被判为非法——于是「省下几次查询」会变成
+	// 「这位成员直接失败」，比不设上限还糟。因此这里截的是执行，不是应答。
+	exec, overflow := calls, []value_objects.ToolCall(nil)
+	if limit := s.cfg.MaxToolCallsPerRound; limit > 0 && len(calls) > limit {
+		exec, overflow = calls[:limit], calls[limit:]
+		s.log.Warn("单轮工具调用数超过上限，超出部分不执行",
+			zap.Int("requested", len(calls)), zap.Int("limit", limit))
+	}
+
+	outcomes, err := concurrency.Settle(ctx, exec, s.cfg.ToolFanOutLimit,
+		func(ctx context.Context, call value_objects.ToolCall) (toolOutcome, error) {
+			start := time.Now()
+			res, err := s.invokeOne(ctx, call, access, subject)
+			// 失败也带回耗时：Settle 的 Outcome 同时保留 Value 与 Err，
+			// 而「这个工具是立刻拒绝的还是卡了二十秒才超时」是两种完全不同的故障。
+			return toolOutcome{result: res, duration: time.Since(start)}, err
 		})
 	if err != nil {
 		// Settle 只在父 ctx 被取消时报错，单个工具的失败在 outcomes 里。
-		return nil, custom_errors.Unavailable("工具执行已取消").Wrap(err)
+		return nil, nil, custom_errors.Unavailable("工具执行已取消").Wrap(err)
 	}
 
 	out := make([]value_objects.Message, 0, len(calls))
+	records := make([]value_objects.ToolCallRecord, 0, len(calls))
 	for i, o := range outcomes {
-		result := o.Value
+		result := o.Value.result
+		rec := value_objects.ToolCallRecord{
+			Name:     calls[i].Name,
+			OK:       o.Err == nil,
+			Duration: o.Value.duration,
+		}
 		if o.Err != nil {
 			// 工具失败以「工具结果」的形式回灌，而不是让整次发言失败：
 			// 模型完全有能力在一个数据源缺失时换个角度论证。
+			rec.FailReason = custom_errors.MessageOf(o.Err)
 			result = fmt.Sprintf("工具执行失败: %s。请不要猜测该数据，直接说明这一项缺失。",
 				custom_errors.MessageOf(o.Err))
 		}
-		out = append(out, value_objects.ToolResultMessage(calls[i], s.clip(result)))
+		clipped, truncated := s.clip(result)
+		rec.ResultChars = len([]rune(clipped))
+		rec.Truncated = truncated
+		records = append(records, rec)
+		out = append(out, value_objects.ToolResultMessage(exec[i], clipped))
 	}
-	return out, nil
+
+	// 超出部分：回一条说明而不是静默丢弃。说明里点出上限数字，
+	// 模型下一轮就会自己收敛到上限以内，而不是原样再发一次五十个调用。
+	for _, call := range overflow {
+		reason := fmt.Sprintf("本轮工具调用过多（上限 %d 次），该调用未执行。请挑出最关键的几项，下一轮再查。",
+			s.cfg.MaxToolCallsPerRound)
+		records = append(records, value_objects.ToolCallRecord{
+			Name:        call.Name,
+			OK:          false,
+			FailReason:  "单轮工具调用数超过上限",
+			ResultChars: len([]rune(reason)),
+		})
+		out = append(out, value_objects.ToolResultMessage(call, reason))
+	}
+	return out, records, nil
+}
+
+// toolOutcome 把一次工具调用的产出与它的耗时绑在一起。
+//
+// 计时跟着返回值走，而不是让回调按下标写进一个外部切片：Settle 的回调是并发执行的，
+// 那种写法的正确性依赖「每个 goroutine 拿到的下标互不相同」，
+// 而这个前提不被类型系统保证，只被 Settle 的实现细节保证。
+// 换成返回值之后完全没有共享状态，也就没有需要论证的前提。
+type toolOutcome struct {
+	result   string
+	duration time.Duration
 }
 
 func (s *RuntimeService) invokeOne(
@@ -386,13 +474,17 @@ func (s *RuntimeService) invokeOne(
 	})
 }
 
-// clip 截断过长的工具结果。
-func (s *RuntimeService) clip(text string) string {
+// clip 截断过长的工具结果，第二个返回值表示是否真的截断过。
+//
+// 截断状态由这里返回，而不是让调用方比较前后长度来推断：
+// 截断时会追加一句提示语，所以截断后的字符数**可能比原文还长**
+// （上限较小时必然如此）。「长度变短即截断」是个看起来自然、实际会静默失效的判断。
+func (s *RuntimeService) clip(text string) (string, bool) {
 	rs := []rune(text)
 	if len(rs) <= s.cfg.MaxToolResultRunes {
-		return text
+		return text, false
 	}
-	return string(rs[:s.cfg.MaxToolResultRunes]) + "\n…（结果过长已截断，如需更多请缩小查询范围）"
+	return string(rs[:s.cfg.MaxToolResultRunes]) + "\n…（结果过长已截断，如需更多请缩小查询范围）", true
 }
 
 func (s *RuntimeService) specsFor(access value_objects.DataAccess) []value_objects.ToolSpec {

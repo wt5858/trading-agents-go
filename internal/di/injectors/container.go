@@ -87,3 +87,25 @@ func CreateWorkerRunners(ctx context.Context, cfg *config.Config, log *zap.Logge
 		providers.WorkerSet,
 	))
 }
+
+// CreateAnalysisEngine 装配一台可直接驱动的分析引擎，供 backfill 子命令使用。
+//
+// # 为什么回填不走任务队列
+//
+// 走 AnalysisService.Submit 看起来能白捡认领、重试与停滞巡检，但它有两个
+// 对批量回填致命的性质：提交时要占一个 Redis 并发名额（PerUser / Global 上限），
+// 因此几百条一次提交必然在中途被自己的限流挡住；而且那些名额与线上用户共用，
+// 一次回填会把交互式提交的分析全部挤掉——回填是可以慢慢跑的，
+// 有人正等着看的那次不行。
+//
+// 自己驱动则可以把节奏完全捏在手里：一次跑一格、可中断、可续跑，
+// 而成本上限由 EngineConfig.MaxCostUSD 在引擎内部把关，不依赖调用方自律。
+//
+// 它复用 CoreSet 而不是手工装配：LLM 路由要先从数据库读出供应商配置才能解析模型名，
+// 这类依赖顺序由 Wire 从函数签名推导，手写一份迟早和 serve 那边分叉。
+func CreateBackfillDeps(ctx context.Context, cfg *config.Config, log *zap.Logger) (*providers.BackfillDeps, error) {
+	panic(wire.Build(
+		providers.CoreSet,
+		providers.BackfillSet,
+	))
+}

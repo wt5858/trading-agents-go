@@ -80,10 +80,29 @@ type ToolRegistry interface {
 // 注意这里只有读、没有取数：跨上下文的外部数据补齐由 stock 上下文自己负责。
 // 让十四位成员在工具调用里触发外部数据源拉取，就是在并发扇出里发 RPC——
 // 一次分析可能打出几十个外部请求，而这些数据本该在数据准备阶段一次性备齐。
+//
+// # 为什么这里没有 LatestQuote
+//
+// MarketDataRepository 有 LatestQuote，本接口刻意不声明它。
+// 本上下文的每一次读取都必须锚定在被分析的那个交易日上：回测 2024-03-01 的决策时，
+// 让任何一位成员看到 3 月 5 日的价格都是未来函数——得出的结论准得可疑却毫无意义。
+// 这条纪律在 lookbackRange（新闻、舆情）与 loadKlines（K 线）上一直成立，
+// 唯独行情快照上漏过一次，而漏的原因正是端口里摆着一个不带交易日的方法。
+//
+// 因此这里不是「同时提供两个方法、请调用方选对那个」，而是把错的那个拿走：
+// 少一个选项，就少一处需要靠人记住的约定。要「此刻的价格」的地方
+// （自选股看板、模拟盘估值）不在本上下文，它们各自声明自己的端口。
 type MarketReader interface {
-	LatestQuote(ctx context.Context, code shared_vo.StockCode) (*stock_vo.Quote, error)
+	// QuoteAsOf 取截至 tradeDate 的行情快照；tradeDate 为零值时即「截至此刻」。
+	QuoteAsOf(ctx context.Context, code shared_vo.StockCode, tradeDate shared_vo.TradeDate) (*stock_vo.Quote, error)
 	Klines(ctx context.Context, code shared_vo.StockCode, period stock_vo.Period, rng shared_vo.DateRange, limit int) ([]stock_vo.Kline, error)
-	Financials(ctx context.Context, code shared_vo.StockCode, limit int) ([]stock_vo.Financial, error)
+	// Financials 取截至 asOf 已**公开披露**的财报；asOf 为零值时不做披露过滤。
+	//
+	// 必须带 asOf 的理由与 QuoteAsOf 完全相同，只是更隐蔽：财报的自然键是报告期，
+	// 而报告期 2023-12-31 的年报要到 2024 年 4 月底才公布。
+	// 按报告期取「最近 N 期」，回测 2024-03-01 时会拿到一个月后才存在的年报——
+	// 一处不会报错、只会让结论准得可疑的未来函数。
+	Financials(ctx context.Context, code shared_vo.StockCode, asOf shared_vo.TradeDate, limit int) ([]stock_vo.Financial, error)
 	News(ctx context.Context, code shared_vo.StockCode, rng shared_vo.DateRange, limit int) ([]stock_vo.News, error)
 	SocialPosts(ctx context.Context, code shared_vo.StockCode, rng shared_vo.DateRange, limit int) ([]stock_vo.SocialPost, error)
 }

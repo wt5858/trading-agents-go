@@ -61,6 +61,16 @@ type TurnRecord struct {
 
 	Usage      Usage
 	ToolRounds int
+	// ToolCalls 是这次发言里每一次工具调用的明细，按发生顺序排列。
+	//
+	// ToolRounds 只说得出「来回了几轮」，说不出「查了什么、哪一次空手而归」。
+	// 而工具失败在本系统里是**静默**的：invokeTools 把失败包装成一句
+	// 「工具执行失败，请不要猜测该数据」回灌给模型，模型换个角度继续论证，
+	// 整次发言照常成功。于是「这位分析师的结论是在没拿到财务数据的情况下写的」
+	// 这件事，在轨迹里不留任何痕迹——而它恰恰是解释结论质量的第一手证据。
+	//
+	// 缓存命中时为空：那次运行确实一个工具都没调（同理 Usage 也是零值）。
+	ToolCalls []ToolCallRecord
 	// Truncated 表示工具循环撞到了轮数上限，这份产出可能不完整。
 	Truncated bool
 	// CacheHit 表示这次发言直接取自缓存，没有真的调模型。
@@ -75,6 +85,43 @@ type TurnRecord struct {
 	Failed     bool
 	FailReason string
 }
+
+// ToolCallRecord 是一次工具调用的轨迹。
+//
+// # 为什么不复用 ToolCall
+//
+// ToolCall 是模型**请求**调用什么（名字 + 参数），这里记的是调用**发生了什么**
+// （成没成、多久、回了多少字）。两者的生命周期也不同：ToolCall 要原样进对话记录
+// 发回给模型，而本记录只进轨迹、永远不回灌——把它们并成一个类型，
+// 迟早有人把耗时字段序列化进请求体。
+//
+// 不记参数原文：参数里会出现模型幻觉出的超长字符串，而排查时真正要知道的是
+// 「调了哪个工具、成没成」。要复现具体入参，对话记录里有完整的 ToolCall。
+type ToolCallRecord struct {
+	// Round 是这次调用发生在第几轮工具循环（与 TurnRecord.ToolRounds 同一套计数）。
+	// 它是「模型在第几轮还没查够」的唯一线索，也是判断该不该调大轮数上限的依据。
+	Round int
+	Name  ToolName
+	// OK 为 false 时 FailReason 必有值。
+	//
+	// 独立成一个布尔而不是靠 FailReason 是否为空来推断：
+	// 统计「工具失败率」时要做的是数 OK==false，让聚合逻辑依赖
+	// 「某个字符串字段非空」是把展示用的文案变成了计算的输入。
+	OK         bool
+	FailReason string
+	// Duration 是这次调用的墙钟耗时，含授权校验与仓储查询。
+	Duration time.Duration
+	// ResultChars 是**截断后**真正回灌给模型的字符数，Truncated 标记是否发生过截断。
+	//
+	// 记截断后而不是截断前：这个数字要回答的是「这次调用往上下文里塞了多少」，
+	// 而模型看到的就是截断后的那一份。截断这件事本身由 Truncated 承载，
+	// 两个字段合起来才说得出「查到了很多但只喂进去一部分」。
+	ResultChars int
+	Truncated   bool
+}
+
+// DurationMS 返回耗时毫秒数，落库与展示都用它。
+func (r ToolCallRecord) DurationMS() int64 { return r.Duration.Milliseconds() }
 
 // Failing 返回标记为失败的副本。
 //

@@ -39,6 +39,51 @@
                 }
             }
         },
+        "/agents/evaluations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "智能体"
+                ],
+                "summary": "回测评估列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "返回条数，默认 20，最大 100",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/agent.EvaluationListView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "503": {
+                        "description": "回测评估仓储未就绪",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/agents/indicators/{code}": {
             "get": {
                 "produces": [
@@ -109,6 +154,53 @@
                     },
                     "503": {
                         "description": "技术指标仓储未就绪",
+                        "schema": {
+                            "$ref": "#/definitions/response.Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/agents/track-record/{code}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "智能体"
+                ],
+                "summary": "标的历史战绩",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "example": "600519",
+                        "description": "标的代码",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Envelope"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/agent.TrackRecordView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "503": {
+                        "description": "回测评估仓储未就绪",
                         "schema": {
                             "$ref": "#/definitions/response.Envelope"
                         }
@@ -6287,6 +6379,43 @@
         }
     },
     "definitions": {
+        "agent.BaselineView": {
+            "type": "object",
+            "properties": {
+                "ci": {
+                    "$ref": "#/definitions/agent.ConfidenceIntervalView"
+                },
+                "hitRate": {
+                    "type": "string",
+                    "example": "0.5167"
+                },
+                "hits": {
+                    "type": "integer",
+                    "example": 31
+                },
+                "name": {
+                    "type": "string",
+                    "example": "无脑全买入"
+                }
+            }
+        },
+        "agent.ConfidenceIntervalView": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "example": "0.95"
+                },
+                "lower": {
+                    "type": "string",
+                    "example": "0.4038"
+                },
+                "upper": {
+                    "type": "string",
+                    "example": "0.5962"
+                }
+            }
+        },
         "agent.CrewView": {
             "type": "object",
             "properties": {
@@ -6299,6 +6428,92 @@
                 "total": {
                     "type": "integer",
                     "example": 12
+                }
+            }
+        },
+        "agent.EvaluationListView": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agent.EvaluationView"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "agent.EvaluationView": {
+            "type": "object",
+            "properties": {
+                "baselines": {
+                    "description": "Baselines 与 hitRate 用的是同一批样本，因此可以直接比。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agent.BaselineView"
+                    }
+                },
+                "ci": {
+                    "$ref": "#/definitions/agent.ConfidenceIntervalView"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "flatBandPct": {
+                    "description": "FlatBandPct 是横盘判定带宽，属于判定口径的一部分。\n露出来是因为两份一致率不同的报告，可能只是带宽调过。",
+                    "type": "string",
+                    "example": "1"
+                },
+                "hitRate": {
+                    "type": "string",
+                    "example": "0.5833"
+                },
+                "hits": {
+                    "type": "integer",
+                    "example": 35
+                },
+                "horizonDays": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "id": {
+                    "type": "string"
+                },
+                "scored": {
+                    "type": "integer",
+                    "example": 60
+                },
+                "skipCounts": {
+                    "description": "SkipCounts 是各跳过原因的条数。\n\n必须露出来：「一致率 70%」与「一致率 70%，但三分之二样本因缺行情被跳过」\n是两个完全不同的结论，而后者才是真相。",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "skipped": {
+                    "type": "integer",
+                    "example": 60
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 120
+                },
+                "truncated": {
+                    "description": "Truncated 表示区间里还有运行没被取进这次评估，带着时间上的选择偏差。",
+                    "type": "boolean",
+                    "example": false
+                },
+                "windowEnd": {
+                    "type": "string",
+                    "example": "2026-06-30"
+                },
+                "windowStart": {
+                    "description": "Window 是被评估的分析所在的交易日区间。",
+                    "type": "string",
+                    "example": "2026-03-02"
                 }
             }
         },
@@ -6328,6 +6543,63 @@
                 "tradeDate": {
                     "type": "string",
                     "example": "2026-09-17"
+                }
+            }
+        },
+        "agent.TrackRecordSampleView": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "example": "buy"
+                },
+                "hit": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "returnPct": {
+                    "type": "string",
+                    "example": "-8.32"
+                },
+                "tradeDate": {
+                    "type": "string",
+                    "example": "2026-03-02"
+                }
+            }
+        },
+        "agent.TrackRecordView": {
+            "type": "object",
+            "properties": {
+                "ci": {
+                    "description": "CI 是命中率的 95% 置信区间。单只标的的样本量通常极小，\n不给区间的话「命中率 67%」会被当成一个可信的数字。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/agent.ConfidenceIntervalView"
+                        }
+                    ]
+                },
+                "hitRate": {
+                    "type": "string",
+                    "example": "0.5833"
+                },
+                "hits": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "samples": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/agent.TrackRecordSampleView"
+                    }
+                },
+                "scored": {
+                    "description": "Scored 是已评分的历史建议数，Hits 是其中方向判对的次数。\n两个数一起给，因为 3 战 2 胜与 300 战 200 胜是完全不同的事。",
+                    "type": "integer",
+                    "example": 12
+                },
+                "symbol": {
+                    "type": "string",
+                    "example": "600519"
                 }
             }
         },
@@ -6391,6 +6663,11 @@
                     "type": "string",
                     "example": "空头研究员"
                 },
+                "cacheHit": {
+                    "description": "CacheHit 为真时 totalTokens 与 costUsd 都是 0，因为这次发言取自缓存，\n而不是计费漏记。",
+                    "type": "boolean",
+                    "example": false
+                },
                 "claim": {
                     "type": "string"
                 },
@@ -6412,6 +6689,11 @@
                     "type": "boolean",
                     "example": false
                 },
+                "model": {
+                    "description": "Model 是这次发言真正落到的模型名，同一条链上各成员可以不同。",
+                    "type": "string",
+                    "example": "deepseek-chat"
+                },
                 "phase": {
                     "type": "string",
                     "example": "debate"
@@ -6428,9 +6710,56 @@
                     "type": "string",
                     "example": "看空"
                 },
+                "toolCalls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/analysis.ChainToolCallView"
+                    }
+                },
+                "toolRounds": {
+                    "description": "ToolRounds 是工具调用往返轮数；Truncated 表示撞到轮数上限、产出可能不完整。",
+                    "type": "integer",
+                    "example": 2
+                },
                 "totalTokens": {
                     "type": "integer",
                     "example": 1820
+                },
+                "truncated": {
+                    "type": "boolean",
+                    "example": false
+                }
+            }
+        },
+        "analysis.ChainToolCallView": {
+            "type": "object",
+            "properties": {
+                "durationSeconds": {
+                    "type": "string",
+                    "example": "0.412"
+                },
+                "failReason": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "get_news"
+                },
+                "ok": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "resultChars": {
+                    "type": "integer",
+                    "example": 1840
+                },
+                "round": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "truncated": {
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },

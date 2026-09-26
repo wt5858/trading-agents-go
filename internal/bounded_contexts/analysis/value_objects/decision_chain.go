@@ -65,8 +65,41 @@ type ChainLink struct {
 	TotalTokens int
 	CostUSD     decimal.Decimal
 
+	// Model 是这次发言真正落到的模型名（路由解析之后的）。
+	// 同一条链上不同成员可以跑在不同模型上，不透出这一列，
+	// 「为什么这一位又贵又慢」就只能靠猜。
+	Model string
+	// ToolRounds 是工具调用的往返轮数，Truncated 表示撞到了轮数上限、产出可能不完整。
+	ToolRounds int
+	Truncated  bool
+	// CacheHit 为真时 TotalTokens 与 CostUSD 都是 0，因为这次发言取自缓存。
+	// 少了这一列，界面上会出现「零成本却有完整报告」的条目，看起来像计费漏记。
+	CacheHit bool
+	// ToolCalls 是这次发言调用过的工具明细。
+	//
+	// 它是回答「这位分析师的结论是在拿到哪些数据的情况下写的」的唯一依据——
+	// 工具失败在本系统里是静默的（失败被包装成一句说明回灌给模型，发言照常成功），
+	// 因此「财务数据没取到」这件事除了这里，在任何地方都看不出来。
+	ToolCalls []ChainToolCall
+
 	Failed     bool
 	FailReason string
+}
+
+// ChainToolCall 是决策链视角下的一次工具调用。
+//
+// 本上下文自己定义而不是复用 agent 的 ToolCallRecord，理由同 DecisionChain：
+// analysis 不认识另一个限界上下文的类型。翻译发生在 agent 那一侧。
+type ChainToolCall struct {
+	Round int
+	Name  string
+	OK    bool
+	// FailReason 仅在 OK 为 false 时有值。
+	FailReason string
+	DurationS  decimal.Decimal
+	// ResultChars 是真正回灌给模型的字符数，Truncated 表示原始结果被截断过。
+	ResultChars int
+	Truncated   bool
 }
 
 // ChainVerdict 是决策链末端的终裁。

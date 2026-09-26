@@ -143,7 +143,10 @@ type quoteTool struct{ market MarketReader }
 func (t *quoteTool) Spec() value_objects.ToolSpec {
 	return value_objects.NewToolSpec(
 		value_objects.ToolGetQuote,
-		"获取当前分析标的的最新行情快照，包含开高低收、涨跌幅、成交量额、换手率与 PE/PB。无需参数。",
+		// 描述里写「截至分析交易日」而不是「最新」：这段文字是模型判断该不该调用、
+		// 以及怎么解读返回值的唯一依据。说成「最新」会让它在回测历史某一天时，
+		// 把拿到的价格当作今天的价格去推理。
+		"获取当前分析标的截至分析交易日的行情快照，包含开高低收、涨跌幅、成交量额、换手率与 PE/PB。无需参数。",
 		value_objects.NewParamSchema(nil),
 	)
 }
@@ -152,7 +155,9 @@ func (t *quoteTool) Invoke(ctx context.Context, in ToolInvocation) (string, erro
 	if t.market == nil {
 		return "", custom_errors.Unavailable("行情服务不可用")
 	}
-	q, err := t.market.LatestQuote(ctx, in.Code)
+	// in.TradeDate 一直都在（runtime_service 组装 ToolInvocation 时与 Code 一同注入），
+	// 只是先前没被用上——于是这个工具成了整条流水线上唯一一处能看见未来的地方。
+	q, err := t.market.QuoteAsOf(ctx, in.Code, in.TradeDate)
 	if err != nil {
 		return "", err
 	}
@@ -283,7 +288,11 @@ type financialTool struct{ market MarketReader }
 func (t *financialTool) Spec() value_objects.ToolSpec {
 	return value_objects.NewToolSpec(
 		value_objects.ToolGetFinancials,
-		"获取当前分析标的的历史财务数据（营收、净利润、EPS、ROE、毛利率、净利率、资产负债率），按报告期倒序。",
+		// 与 get_quote 同理：描述里点明「截至分析交易日已披露」，
+		// 否则模型会默认自己拿到的是最新一期财报，并据此推断公司的当前状况。
+		"获取当前分析标的截至分析交易日**已公开披露**的历史财务数据"+
+			"（营收、净利润、EPS、ROE、毛利率、净利率、资产负债率），按报告期倒序。"+
+			"注意：报告期最新的那一期可能尚未公布，因此不会出现在结果里。",
 		value_objects.NewParamSchema(map[string]value_objects.ParamField{
 			"limit": {
 				Type:        "integer",
@@ -299,7 +308,7 @@ func (t *financialTool) Invoke(ctx context.Context, in ToolInvocation) (string, 
 		return "", custom_errors.Unavailable("财务数据服务不可用")
 	}
 	limit := clampInt(parseArgs(in.Arguments).Limit, defaultFinLimit, maxFinLimit)
-	items, err := t.market.Financials(ctx, in.Code, limit)
+	items, err := t.market.Financials(ctx, in.Code, in.TradeDate, limit)
 	if err != nil {
 		return "", err
 	}

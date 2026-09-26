@@ -227,7 +227,9 @@ func (c *Connections) EnsureMongoIndexes(ctx context.Context, log *zap.Logger) e
 	if err := agent_repo.NewAnalysisRunRepository(c.Mongo).EnsureIndexes(ctx); err != nil {
 		return fmt.Errorf("创建 agent 运行轨迹索引失败: %w", err)
 	}
-	// agent_evaluations 没有索引要建：它只按 _id 点查点写，主键索引够用。
+	if err := agent_repo.NewEvaluationRepository(c.Mongo).EnsureIndexes(ctx); err != nil {
+		return fmt.Errorf("创建 agent 回测评估索引失败: %w", err)
+	}
 	// 选股筛选依赖以 trade_date 打头的索引：没有它，「取最新一个交易日的横截面」
 	// 会退化成全集合扫描。
 	if err := screening_repo.EnsureScreeningIndexes(ctx, c.Mongo); err != nil {

@@ -108,6 +108,27 @@ type statsColumns struct {
 	// Truncated 必须跟着一致率一起存：一份基于被砍过的样本算出来的一致率，
 	// 事后从库里读出来时长得和全量的一模一样。
 	Truncated bool `bson:"truncated"`
+	// CI 与 Baselines 同样必须落库而不是读时重算，理由与整个 statsColumns 一致：
+	// 它们依赖当时那版判定口径（横盘带宽、置信水平），
+	// 口径一改，历史报告里的区间就跟着变，跨时间对比也就无从谈起。
+	CI        ciColumns         `bson:"hit_rate_ci"`
+	Baselines []baselineColumns `bson:"baselines,omitempty"`
+}
+
+// ciColumns 是置信区间的落库形态。
+type ciColumns struct {
+	Lower decimal.Decimal `bson:"lower"`
+	Upper decimal.Decimal `bson:"upper"`
+	// Level 跟着区间一起存：改置信水平时，历史记录必须还能说出自己是按哪个算的。
+	Level decimal.Decimal `bson:"level"`
+}
+
+// baselineColumns 是对照基线的落库形态。
+type baselineColumns struct {
+	Name    string          `bson:"name"`
+	Hits    int             `bson:"hits"`
+	HitRate decimal.Decimal `bson:"hit_rate"`
+	CI      ciColumns       `bson:"ci"`
 }
 
 func statsColumnsOf(s value_objects.EvaluationStats) statsColumns {
@@ -121,11 +142,27 @@ func statsColumnsOf(s value_objects.EvaluationStats) statsColumns {
 			Action: a.Action.String(), Scored: a.Scored, Hits: a.Hits, HitRate: a.HitRate,
 		})
 	}
+	bases := make([]baselineColumns, 0, len(s.Baselines))
+	for _, b := range s.Baselines {
+		bases = append(bases, baselineColumns{
+			Name: b.Name, Hits: b.Hits, HitRate: b.HitRate, CI: ciColumnsOf(b.CI),
+		})
+	}
 	return statsColumns{
 		Total: s.Total, Scored: s.Scored, Skipped: s.Skipped, Hits: s.Hits,
 		HitRate: s.HitRate, SkipCounts: skips, ByAction: rows,
 		Truncated: s.Truncated,
+		CI:        ciColumnsOf(s.HitRateCI),
+		Baselines: bases,
 	}
+}
+
+func ciColumnsOf(c value_objects.ConfidenceInterval) ciColumns {
+	return ciColumns{Lower: c.Lower, Upper: c.Upper, Level: c.Level}
+}
+
+func (c ciColumns) toDomain() value_objects.ConfidenceInterval {
+	return value_objects.ConfidenceInterval{Lower: c.Lower, Upper: c.Upper, Level: c.Level}
 }
 
 func (c statsColumns) toDomain() value_objects.EvaluationStats {
@@ -139,10 +176,18 @@ func (c statsColumns) toDomain() value_objects.EvaluationStats {
 			Action: analysis_vo.Action(a.Action), Scored: a.Scored, Hits: a.Hits, HitRate: a.HitRate,
 		})
 	}
+	bases := make([]value_objects.BaselineStat, 0, len(c.Baselines))
+	for _, b := range c.Baselines {
+		bases = append(bases, value_objects.BaselineStat{
+			Name: b.Name, Hits: b.Hits, HitRate: b.HitRate, CI: b.CI.toDomain(),
+		})
+	}
 	return value_objects.EvaluationStats{
 		Total: c.Total, Scored: c.Scored, Skipped: c.Skipped, Hits: c.Hits,
 		HitRate: c.HitRate, SkipCounts: skips, ByAction: rows,
 		Truncated: c.Truncated,
+		HitRateCI: c.CI.toDomain(),
+		Baselines: bases,
 	}
 }
 

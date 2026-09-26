@@ -1,5 +1,31 @@
 basePath: /api/v1
 definitions:
+  agent.BaselineView:
+    properties:
+      ci:
+        $ref: '#/definitions/agent.ConfidenceIntervalView'
+      hitRate:
+        example: "0.5167"
+        type: string
+      hits:
+        example: 31
+        type: integer
+      name:
+        example: 无脑全买入
+        type: string
+    type: object
+  agent.ConfidenceIntervalView:
+    properties:
+      level:
+        example: "0.95"
+        type: string
+      lower:
+        example: "0.4038"
+        type: string
+      upper:
+        example: "0.5962"
+        type: string
+    type: object
   agent.CrewView:
     properties:
       members:
@@ -9,6 +35,74 @@ definitions:
       total:
         example: 12
         type: integer
+    type: object
+  agent.EvaluationListView:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/agent.EvaluationView'
+        type: array
+      total:
+        example: 3
+        type: integer
+    type: object
+  agent.EvaluationView:
+    properties:
+      baselines:
+        description: Baselines 与 hitRate 用的是同一批样本，因此可以直接比。
+        items:
+          $ref: '#/definitions/agent.BaselineView'
+        type: array
+      ci:
+        $ref: '#/definitions/agent.ConfidenceIntervalView'
+      createdAt:
+        type: string
+      flatBandPct:
+        description: |-
+          FlatBandPct 是横盘判定带宽，属于判定口径的一部分。
+          露出来是因为两份一致率不同的报告，可能只是带宽调过。
+        example: "1"
+        type: string
+      hitRate:
+        example: "0.5833"
+        type: string
+      hits:
+        example: 35
+        type: integer
+      horizonDays:
+        example: 7
+        type: integer
+      id:
+        type: string
+      scored:
+        example: 60
+        type: integer
+      skipCounts:
+        additionalProperties:
+          type: integer
+        description: |-
+          SkipCounts 是各跳过原因的条数。
+
+          必须露出来：「一致率 70%」与「一致率 70%，但三分之二样本因缺行情被跳过」
+          是两个完全不同的结论，而后者才是真相。
+        type: object
+      skipped:
+        example: 60
+        type: integer
+      total:
+        example: 120
+        type: integer
+      truncated:
+        description: Truncated 表示区间里还有运行没被取进这次评估，带着时间上的选择偏差。
+        example: false
+        type: boolean
+      windowEnd:
+        example: "2026-06-30"
+        type: string
+      windowStart:
+        description: Window 是被评估的分析所在的交易日区间。
+        example: "2026-03-02"
+        type: string
     type: object
   agent.IndicatorView:
     properties:
@@ -29,6 +123,49 @@ definitions:
         type: string
       tradeDate:
         example: "2026-09-17"
+        type: string
+    type: object
+  agent.TrackRecordSampleView:
+    properties:
+      action:
+        example: buy
+        type: string
+      hit:
+        example: false
+        type: boolean
+      returnPct:
+        example: "-8.32"
+        type: string
+      tradeDate:
+        example: "2026-03-02"
+        type: string
+    type: object
+  agent.TrackRecordView:
+    properties:
+      ci:
+        allOf:
+        - $ref: '#/definitions/agent.ConfidenceIntervalView'
+        description: |-
+          CI 是命中率的 95% 置信区间。单只标的的样本量通常极小，
+          不给区间的话「命中率 67%」会被当成一个可信的数字。
+      hitRate:
+        example: "0.5833"
+        type: string
+      hits:
+        example: 7
+        type: integer
+      samples:
+        items:
+          $ref: '#/definitions/agent.TrackRecordSampleView'
+        type: array
+      scored:
+        description: |-
+          Scored 是已评分的历史建议数，Hits 是其中方向判对的次数。
+          两个数一起给，因为 3 战 2 胜与 300 战 200 胜是完全不同的事。
+        example: 12
+        type: integer
+      symbol:
+        example: "600519"
         type: string
     type: object
   analysis.BatchView:
@@ -72,6 +209,12 @@ definitions:
       agentName:
         example: 空头研究员
         type: string
+      cacheHit:
+        description: |-
+          CacheHit 为真时 totalTokens 与 costUsd 都是 0，因为这次发言取自缓存，
+          而不是计费漏记。
+        example: false
+        type: boolean
       claim:
         type: string
       content:
@@ -87,6 +230,10 @@ definitions:
       failed:
         example: false
         type: boolean
+      model:
+        description: Model 是这次发言真正落到的模型名，同一条链上各成员可以不同。
+        example: deepseek-chat
+        type: string
       phase:
         example: debate
         type: string
@@ -99,9 +246,43 @@ definitions:
       stanceName:
         example: 看空
         type: string
+      toolCalls:
+        items:
+          $ref: '#/definitions/analysis.ChainToolCallView'
+        type: array
+      toolRounds:
+        description: ToolRounds 是工具调用往返轮数；Truncated 表示撞到轮数上限、产出可能不完整。
+        example: 2
+        type: integer
       totalTokens:
         example: 1820
         type: integer
+      truncated:
+        example: false
+        type: boolean
+    type: object
+  analysis.ChainToolCallView:
+    properties:
+      durationSeconds:
+        example: "0.412"
+        type: string
+      failReason:
+        type: string
+      name:
+        example: get_news
+        type: string
+      ok:
+        example: true
+        type: boolean
+      resultChars:
+        example: 1840
+        type: integer
+      round:
+        example: 1
+        type: integer
+      truncated:
+        example: false
+        type: boolean
     type: object
   analysis.ChainVerdictView:
     properties:
@@ -2031,6 +2212,32 @@ paths:
       summary: 智能体阵容
       tags:
       - 智能体
+  /agents/evaluations:
+    get:
+      parameters:
+      - description: 返回条数，默认 20，最大 100
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/agent.EvaluationListView'
+              type: object
+        "503":
+          description: 回测评估仓储未就绪
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 回测评估列表
+      tags:
+      - 智能体
   /agents/indicators/{code}:
     get:
       parameters:
@@ -2077,6 +2284,34 @@ paths:
           schema:
             $ref: '#/definitions/response.Envelope'
       summary: 技术指标快照
+      tags:
+      - 智能体
+  /agents/track-record/{code}:
+    get:
+      parameters:
+      - description: 标的代码
+        example: "600519"
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Envelope'
+            - properties:
+                data:
+                  $ref: '#/definitions/agent.TrackRecordView'
+              type: object
+        "503":
+          description: 回测评估仓储未就绪
+          schema:
+            $ref: '#/definitions/response.Envelope'
+      summary: 标的历史战绩
       tags:
       - 智能体
   /analysis/batches:

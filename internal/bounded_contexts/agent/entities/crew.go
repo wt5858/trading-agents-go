@@ -303,6 +303,46 @@ func NewRiskManager() *CrewMember {
 	return m
 }
 
+// NewSoloAnalyst 是对照组：一位独立分析师，看同一份素材，一次给出决策。
+//
+// # 它不进 NewCrew
+//
+// 它不是花名册的一员，也不参与任何编排。它存在的唯一目的，是回答
+// 「十四位成员的分工、辩论与终裁，相对一次直答到底多值多少」。
+// 把它塞进 Crew，这个问题就问不成了——对照组会跑在实验组内部。
+//
+// # 工具授权为什么给满
+//
+// 这个实验要测的是**编排**的边际价值，不是「有工具 vs 没工具」。
+// 只给它数据不给它工具，得到的差异里会混进一个完全无关的变量，
+// 而那个变量的影响大概率比编排本身还大。
+//
+// # 为什么 token 与轮数给到与仲裁者同级
+//
+// 同理：一次直答要在一条回复里覆盖十四位成员分头做的事，
+// 给它分析师级别的配额等于让它写到一半被截断，
+// 那样测出来的差距是「谁的额度大」，不是「谁的方法好」。
+func NewSoloAnalyst() *CrewMember {
+	m := newMember(value_objects.KindSolo,
+		value_objects.NewDataAccess(value_objects.AllToolNames()...),
+		value_objects.PolicyStrict, tempTrader, tokensArbiter, roundsAnalyst)
+	// 前置条件只要求有素材：它拿到的就是数据层，不依赖任何其他成员的产出——
+	// 那正是「独立」的含义。
+	m.requires = func(s ContextSnapshot) error {
+		if s.Market.Quote.Code.IsZero() && len(s.Market.Klines) == 0 &&
+			len(s.Market.Financials) == 0 && len(s.Market.News) == 0 {
+			return custom_errors.Unavailable("没有任何素材，无法独立研判")
+		}
+		return nil
+	}
+	// 与风控经理一样把结论收进决策：对照组的产出必须能和实验组逐条比对，
+	// 而比对的单位是 Decision，不是一段自由文本。
+	m.absorb = func(ac *AnalysisContext, res TurnResult) {
+		ac.SetDecision(value_objects.ParseDecision(res.Content))
+	}
+	return m
+}
+
 // requireAnyAnalystReport 是多空研究员的共同前置条件。
 func requireAnyAnalystReport(s ContextSnapshot) error {
 	if slices.ContainsFunc(value_objects.AnalystKinds(), s.HasReport) {

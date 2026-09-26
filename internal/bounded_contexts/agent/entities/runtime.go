@@ -17,6 +17,8 @@ type TurnResult struct {
 	Content    string
 	Usage      value_objects.Usage
 	ToolRounds int
+	// ToolCalls 是这次发言里每一次工具调用的明细，用途见 value_objects.ToolCallRecord。
+	ToolCalls []value_objects.ToolCallRecord
 	// Truncated 表示工具循环撞到了轮数上限，产出可能不完整。
 	Truncated bool
 

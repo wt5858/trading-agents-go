@@ -284,7 +284,9 @@ func (s *StockService) Financials(ctx context.Context, rawCode, rawMarket string
 		return nil, err
 	}
 
-	local, err := s.marketRepo.Financials(ctx, code, limit)
+	// 零值 asOf：这是给用户看的实时查询，一切已入库的财报都是「现在」。
+	// 披露日过滤只服务于历史回测，加在这里只会让前端少几期数据。
+	local, err := s.marketRepo.Financials(ctx, code, shared_vo.TradeDate{}, limit)
 	if err != nil {
 		return nil, err
 	}

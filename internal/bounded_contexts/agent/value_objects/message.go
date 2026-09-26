@@ -155,6 +155,15 @@ type ChatResponse struct {
 	Usage    Usage
 	// ToolRounds 是实际发生的工具轮数，0 表示模型一次就给出了结论。
 	ToolRounds int
+	// ToolCalls 是每一次工具调用的明细，按发生顺序排列。
+	//
+	// 它与 Messages 里的 AssistantToolCallMessage 是两份不同的东西：
+	// 后者是要发回给模型的对话内容，不含耗时、也分不出哪次调用失败了
+	// （失败被包装成一句给模型看的说明文字）。统计口径必须取自这里。
+	//
+	// 出错返回时也要带上已经发生过的那些：撞上下文上限之前调掉的工具是真跑过的，
+	// 而「它在挂掉之前查到了什么」正是这类失败的第一个排查问题。
+	ToolCalls []ToolCallRecord
 	// Truncated 表示循环是因为撞到 MaxToolRounds 上限才结束的。
 	// 这种回答通常不完整，调用方据此决定要不要在报告里加一句提示。
 	Truncated bool

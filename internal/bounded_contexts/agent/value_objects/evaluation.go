@@ -35,6 +35,25 @@ func (d Direction) DisplayName() string {
 	return "无方向"
 }
 
+// DirectionOfAction 把建议动作翻译成方向。
+//
+// 持有与待定没有方向：它们是「不动」，而不是「预测横盘」。
+// 把它们当成横盘预测会凭空给系统送分——横盘在短窗口里出现得相当频繁。
+//
+// 这个映射是评分口径的核心，必须只有一份：回测按它判命中，
+// 配对实验按它判两边是否给出了相同方向。两处各写一份的话，
+// 某天有人给「观望」加了一个方向，两个实验的结论会朝相反方向漂移，
+// 而它们会被写进同一份报告。
+func DirectionOfAction(a analysis_vo.Action) Direction {
+	switch a {
+	case analysis_vo.ActionBuy, analysis_vo.ActionIncrease:
+		return DirectionUp
+	case analysis_vo.ActionSell, analysis_vo.ActionReduce:
+		return DirectionDown
+	}
+	return DirectionNone
+}
+
 // SkipReason 是一条样本未参与评分的原因。
 //
 // 跳过的样本必须带着原因一起留下，不能在统计前静默丢掉：
@@ -111,6 +130,43 @@ type ActionStat struct {
 	HitRate decimal.Decimal
 }
 
+// ConfidenceInterval 是一个比率的置信区间。
+//
+// # 为什么一致率必须带区间
+//
+// 「一致率 58%」这个数字单独拿出来什么都说明不了：n=30 时它的 95% 区间大约是
+// [40%, 74%]，与抛硬币完全无法区分；n=1000 时才收窄到 [55%, 61%]。
+// 少了区间，读者（包括写代码的人自己）会把小样本的波动当成系统的能力，
+// 而这恰恰是这类评测最常见、也最难自我察觉的错误。
+type ConfidenceInterval struct {
+	// Lower / Upper 是区间两端，0-1 之间。
+	Lower decimal.Decimal
+	Upper decimal.Decimal
+	// Level 是置信水平，当前固定 0.95。显式存下来是因为它会进报告，
+	// 而「95%」这三个字符如果只写在展示层，改水平时必然漏改一处。
+	Level decimal.Decimal
+}
+
+// Width 是区间宽度，用来快速判断这个数字有没有解释价值。
+func (c ConfidenceInterval) Width() decimal.Decimal { return c.Upper.Sub(c.Lower) }
+
+// BaselineStat 是对照基线的统计。
+//
+// # 为什么必须与系统结论用同一批样本
+//
+// 基线的全部意义在于回答「系统比不动脑子好在哪」。一旦两边的分母不同
+// （比如基线用全部运行、系统只用给了方向的那些），两个数字就不再可比——
+// 而它们会被并排印在同一张表上，读者没有任何线索察觉这件事。
+// 因此基线只在已评分样本上计算，与 EvaluationStats.Scored 同分母。
+type BaselineStat struct {
+	// Name 是基线的名字，例如「无脑全买入」。
+	Name string
+	// Hits 是这个基线在同一批样本上「猜对方向」的次数。
+	Hits    int
+	HitRate decimal.Decimal
+	CI      ConfidenceInterval
+}
+
 // EvaluationStats 是一次回测的汇总结论。
 type EvaluationStats struct {
 	// Total 是扫到的运行总数，Scored 是真正参与评分的样本数。
@@ -123,6 +179,17 @@ type EvaluationStats struct {
 	Hits    int
 	// HitRate 是命中数除以参与评分的样本数，0-1 之间。
 	HitRate decimal.Decimal
+	// HitRateCI 是 HitRate 的 95% 置信区间。
+	//
+	// 它与 HitRate 必须成对出现，理由见 ConfidenceInterval 的说明。
+	// 展示层的硬约束：任何一致率数字不带 n 与区间，不许进 README、不许进简历。
+	HitRateCI ConfidenceInterval
+	// Baselines 是同一批样本上的对照基线，顺序固定。
+	//
+	// 没有基线的一致率是无法解释的：牛市里「无脑全买入」也能有 65%，
+	// 此时系统的 58% 其实是负贡献——而单看 58% 这个数字，
+	// 它看起来比抛硬币强。
+	Baselines []BaselineStat
 	// SkipCounts 是各跳过原因的条数。
 	SkipCounts map[SkipReason]int
 	// Truncated 表示区间里还有运行没被取进本次评估。

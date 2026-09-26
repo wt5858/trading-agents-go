@@ -662,9 +662,54 @@ type chainLinkView struct {
 	DurationS   decimal.Decimal `json:"durationSeconds" swaggertype:"string" example:"12.480"`
 	TotalTokens int             `json:"totalTokens" example:"1820"`
 	CostUSD     decimal.Decimal `json:"costUsd" swaggertype:"string" example:"0.0043"`
-	Failed      bool            `json:"failed" example:"false"`
-	FailReason  string          `json:"failReason,omitempty"`
+	// Model 是这次发言真正落到的模型名，同一条链上各成员可以不同。
+	Model string `json:"model,omitempty" example:"deepseek-chat"`
+	// ToolRounds 是工具调用往返轮数；Truncated 表示撞到轮数上限、产出可能不完整。
+	ToolRounds int  `json:"toolRounds" example:"2"`
+	Truncated  bool `json:"truncated" example:"false"`
+	// CacheHit 为真时 totalTokens 与 costUsd 都是 0，因为这次发言取自缓存，
+	// 而不是计费漏记。
+	CacheHit   bool                `json:"cacheHit" example:"false"`
+	ToolCalls  []chainToolCallView `json:"toolCalls,omitempty"`
+	Failed     bool                `json:"failed" example:"false"`
+	FailReason string              `json:"failReason,omitempty"`
 } // @name analysis.ChainLinkView
+
+// chainToolCallView 是一次工具调用的对外形态。
+//
+// ok=false 的条目是最有价值的那些：工具失败在本系统里不会让发言失败，
+// 模型会换个角度继续论证，因此「这份报告是在缺了哪块数据的情况下写出来的」
+// 只能从这里看出来。
+type chainToolCallView struct {
+	Round       int             `json:"round" example:"1"`
+	Name        string          `json:"name" example:"get_news"`
+	OK          bool            `json:"ok" example:"true"`
+	FailReason  string          `json:"failReason,omitempty"`
+	DurationS   decimal.Decimal `json:"durationSeconds" swaggertype:"string" example:"0.412"`
+	ResultChars int             `json:"resultChars" example:"1840"`
+	Truncated   bool            `json:"truncated" example:"false"`
+} // @name analysis.ChainToolCallView
+
+// toChainToolCallViews 空输入返回 nil，配合 omitempty 让不调工具的发言
+// 在 JSON 里不出现 toolCalls 字段——绝大多数发言属于这一类。
+func toChainToolCallViews(in []value_objects.ChainToolCall) []chainToolCallView {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]chainToolCallView, 0, len(in))
+	for _, t := range in {
+		out = append(out, chainToolCallView{
+			Round:       t.Round,
+			Name:        t.Name,
+			OK:          t.OK,
+			FailReason:  t.FailReason,
+			DurationS:   t.DurationS,
+			ResultChars: t.ResultChars,
+			Truncated:   t.Truncated,
+		})
+	}
+	return out
+}
 
 type chainVerdictView struct {
 	DecidedBy     string                 `json:"decidedBy" example:"risk_manager"`
@@ -704,6 +749,11 @@ func toDecisionChainView(c *value_objects.DecisionChain) *decisionChainView {
 			DurationS:   l.DurationS,
 			TotalTokens: l.TotalTokens,
 			CostUSD:     l.CostUSD,
+			Model:       l.Model,
+			ToolRounds:  l.ToolRounds,
+			Truncated:   l.Truncated,
+			CacheHit:    l.CacheHit,
+			ToolCalls:   toChainToolCallViews(l.ToolCalls),
 			Failed:      l.Failed,
 			FailReason:  l.FailReason,
 		})

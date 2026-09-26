@@ -1,8 +1,8 @@
-import { Card, Collapse, Space, Statistic, Tag, Typography } from 'antd'
+import {Card, Collapse, Space, Statistic, Tag, Typography} from 'antd'
 
-import { Markdown } from '../../../components/Markdown'
-import { formatSeconds } from '../../../utils/datetime'
-import type { DecisionChainView } from '../../../types/api'
+import {Markdown} from '../../../components/Markdown'
+import {formatSeconds} from '../../../utils/datetime'
+import type {ChainToolCallView, DecisionChainView} from '../../../types/api'
 
 /**
  * 立场到颜色。
@@ -24,6 +24,17 @@ const STANCE_COLOR: Record<string, string> = {
   neutral: 'default',
   arbiter: 'purple',
   analysis: 'blue',
+}
+
+/**
+ * 数失败的工具调用。
+ *
+ * 判的是 `ok === false` 而不是 `!ok`：这个字段在 JSON 里带 omitempty 语义，
+ * 生成的类型是可选的，`undefined` 表示「这条记录没带这个字段」，
+ * 与「调用失败了」是两回事。用 `!ok` 会把老数据全部算成失败。
+ */
+function failedToolCount(calls: ChainToolCallView[] | undefined): number {
+  return (calls ?? []).filter((c) => c.ok === false).length
 }
 
 export function DecisionChain({ chain }: { chain: DecisionChainView }) {
@@ -59,6 +70,16 @@ export function DecisionChain({ chain }: { chain: DecisionChainView }) {
                 </Tag>
               )}
               {link.failed && <Tag color="error">失败</Tag>}
+              {/* 缓存命中要显式标出：命中时 tokens 与成本都是 0，
+                  不标的话这一条看起来像是计费漏记了。 */}
+              {link.cacheHit && <Tag color="default">缓存</Tag>}
+              {/* 截断意味着工具循环撞到了轮数上限，这份结论可能是在信息不全时下的。 */}
+              {link.truncated && <Tag color="warning">截断</Tag>}
+              {/* 只在有工具失败时出现。工具失败不会让这位成员失败——
+                  模型会换个角度继续论证——所以这里是「这份报告缺了哪块数据」的唯一提示。 */}
+              {failedToolCount(link.toolCalls) > 0 && (
+                <Tag color="orange">工具失败 {failedToolCount(link.toolCalls)}</Tag>
+              )}
             </Space>
           ),
           children: (
@@ -77,10 +98,36 @@ export function DecisionChain({ chain }: { chain: DecisionChainView }) {
                   {link.failReason || '（无内容）'}
                 </Typography.Text>
               )}
+              {/* 工具调用明细。失败的那几条是这里最值钱的信息：
+                  它们解释了报告为什么会缺某一块论据。 */}
+              {link.toolCalls && link.toolCalls.length > 0 && (
+                <Space size={4} wrap>
+                  {link.toolCalls.map((call, i) => (
+                    <Tag
+                      key={`${call.name}-${i}`}
+                      color={call.ok === false ? 'error' : 'default'}
+                      title={
+                        call.ok === false
+                          ? `第 ${call.round ?? 0} 轮 · 失败：${call.failReason ?? '未知'}`
+                          : `第 ${call.round ?? 0} 轮 · ${call.resultChars ?? 0} 字${
+                              call.truncated ? '（已截断）' : ''
+                            }`
+                      }
+                    >
+                      {call.name}
+                      {call.ok === false ? ' ✕' : ''}
+                    </Tag>
+                  ))}
+                </Space>
+              )}
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {link.durationSeconds ? `耗时 ${formatSeconds(link.durationSeconds)}` : ''}
                 {link.totalTokens ? ` · ${link.totalTokens.toLocaleString()} tokens` : ''}
                 {link.costUsd ? ` · $${link.costUsd}` : ''}
+                {/* 模型名按成员透出：同一条链上各成员可以跑在不同模型上，
+                    「为什么这一位又贵又慢」没有这一列就只能靠猜。 */}
+                {link.model ? ` · ${link.model}` : ''}
+                {link.toolRounds ? ` · ${link.toolRounds} 轮工具` : ''}
               </Typography.Text>
             </Space>
           ),

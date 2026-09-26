@@ -197,6 +197,12 @@ func (e *Evaluation) Settle() {
 		SkipCounts: map[value_objects.SkipReason]int{},
 	}
 	perAction := map[analysis_vo.Action]*value_objects.ActionStat{}
+	// alwaysBuyHits 是「无脑全买入」基线的命中数。
+	//
+	// 它在同一个循环里数，而不是另起一次遍历：两者必须落在**同一批样本**上，
+	// 分开算迟早有人给其中一边加个过滤条件，而两个数字会被并排印在同一张表上，
+	// 读者没有任何线索察觉分母已经不同了。
+	alwaysBuyHits := 0
 
 	for _, s := range e.samples {
 		if !s.Scored() {
@@ -207,6 +213,12 @@ func (e *Evaluation) Settle() {
 		stats.Scored++
 		if s.Hit {
 			stats.Hits++
+		}
+		// 基线的预测恒为「涨」，因此它的命中就是实际方向为涨。
+		// 注意横盘不算命中——与系统结论的判定口径完全一致，
+		// 否则基线会凭空拿到一批系统拿不到的分。
+		if s.Actual == value_objects.DirectionUp {
+			alwaysBuyHits++
 		}
 		st, ok := perAction[s.Action]
 		if !ok {
@@ -220,6 +232,14 @@ func (e *Evaluation) Settle() {
 	}
 
 	stats.HitRate = ratio(stats.Hits, stats.Scored)
+	stats.HitRateCI = value_objects.WilsonInterval(stats.Hits, stats.Scored)
+	// 基线与系统结论共用 Scored 作分母，见上面 alwaysBuyHits 的说明。
+	stats.Baselines = []value_objects.BaselineStat{{
+		Name:    "无脑全买入",
+		Hits:    alwaysBuyHits,
+		HitRate: ratio(alwaysBuyHits, stats.Scored),
+		CI:      value_objects.WilsonInterval(alwaysBuyHits, stats.Scored),
+	}}
 	// 按固定顺序输出而不是遍历 map：Go 的 map 遍历顺序是随机的，
 	// 两次回测的报告行序不同会让 diff 完全没法看。
 	for _, a := range scoredActions() {
@@ -251,16 +271,11 @@ func (e *Evaluation) Stats() value_objects.EvaluationStats {
 
 // predictedDirection 把建议动作翻译成方向。
 //
-// 持有与待定没有方向：它们是「不动」，而不是「预测横盘」。
-// 把它们当成横盘预测会凭空给系统送分——横盘在短窗口里出现得相当频繁。
+// 实现收在 value_objects.DirectionOfAction：这条映射是评分口径的核心，
+// 回测按它判命中、配对实验按它判两边方向是否一致，两处各写一份
+// 迟早会朝相反方向漂移，而它们的结论会被写进同一份报告。
 func predictedDirection(a analysis_vo.Action) value_objects.Direction {
-	switch a {
-	case analysis_vo.ActionBuy, analysis_vo.ActionIncrease:
-		return value_objects.DirectionUp
-	case analysis_vo.ActionSell, analysis_vo.ActionReduce:
-		return value_objects.DirectionDown
-	}
-	return value_objects.DirectionNone
+	return value_objects.DirectionOfAction(a)
 }
 
 func actualDirection(returnPct, band decimal.Decimal) value_objects.Direction {

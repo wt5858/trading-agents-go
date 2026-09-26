@@ -1,11 +1,11 @@
-import { lazy } from 'react'
-import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { Button, Result } from 'antd'
+import {lazy} from 'react'
+import {createBrowserRouter, Navigate} from 'react-router-dom'
+import {Button, Result} from 'antd'
 
-import { AppLayout } from './components/AppLayout'
-import { RequireAdmin } from './components/RequireAdmin'
-import { RequireAuth } from './components/RequireAuth'
-import { LoginPage } from './features/identity/pages/LoginPage'
+import {AppLayout} from './components/AppLayout'
+import {RequireAdmin} from './components/RequireAdmin'
+import {RequireAuth} from './components/RequireAuth'
+import {LoginPage} from './features/identity/pages/LoginPage'
 
 // 业务页面一律 lazy。
 //
@@ -31,6 +31,11 @@ const TaskDetailPage = lazy(() =>
 const ReportListPage = lazy(() =>
   import('./features/report/pages/ReportListPage').then((m) => ({
     default: m.ReportListPage,
+  })),
+)
+const EvaluationListPage = lazy(() =>
+  import('./features/evaluation/pages/EvaluationListPage').then((m) => ({
+    default: m.EvaluationListPage,
   })),
 )
 const ReportDetailPage = lazy(() =>
@@ -96,6 +101,7 @@ export const router = createBrowserRouter([
       { path: 'analysis/tasks/:id', element: <TaskDetailPage /> },
       { path: 'reports', element: <ReportListPage /> },
       { path: 'reports/:id', element: <ReportDetailPage /> },
+      { path: 'evaluations', element: <EvaluationListPage /> },
       { path: 'watchlist', element: <WatchlistPage /> },
       { path: 'screening', element: <ScreeningPage /> },
       { path: 'scheduling', element: <JobListPage /> },

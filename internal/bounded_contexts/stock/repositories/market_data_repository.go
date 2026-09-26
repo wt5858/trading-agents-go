@@ -91,6 +91,48 @@ func (repo *MarketDataRepository) LatestQuote(ctx context.Context, code shared_v
 	return &q, nil
 }
 
+// QuoteAsOf 取截至指定交易日的最近一条行情快照。
+//
+// 与 LatestQuote 的差别只在语义，不在实现难度，但两者绝不能互换：
+// LatestQuote 回答「此刻多少钱」，服务于自选股看板与模拟盘估值；
+// QuoteAsOf 回答「那一天收盘时多少钱」，服务于分析与回测。
+// 拿 LatestQuote 去跑一个历史交易日的分析，就是把今天的价格喂给一个
+// 本该只看得见过去的模型——得出的结论准得可疑，却毫无意义。
+//
+// 用 $lte 而不是等值匹配：停牌、节假日、以及数据源当天尚未推送的场景下，
+// 目标交易日本身可能没有快照，而「往前最近一个有数据的交易日」正是分析需要的口径。
+// 等值匹配在这些日子会退化成「没有行情」，把一次本可以正常进行的分析
+// 降级成缺数据分析。
+//
+// tradeDate 为零值时退化为 LatestQuote：实时分析不带交易日，
+// 此时「截至此刻」本来就是正确语义，不需要调用方先判一次再选方法。
+//
+// 走的是与 LatestQuote 同一条 (symbol asc, trade_date desc) 索引：
+// 等值定位 symbol 之后，$lte 在有序的 trade_date 上是一次范围扫描的首条命中。
+func (repo *MarketDataRepository) QuoteAsOf(
+	ctx context.Context,
+	code shared_vo.StockCode,
+	tradeDate shared_vo.TradeDate,
+) (*value_objects.Quote, error) {
+	if code.IsZero() {
+		return nil, custom_errors.Invalid("股票代码不能为空")
+	}
+	if tradeDate.IsZero() {
+		return repo.LatestQuote(ctx, code)
+	}
+	var dto dtos.QuoteDto
+	err := repo.db.Collection(collQuotes).
+		FindOne(ctx,
+			bson.M{"symbol": code.Symbol, "trade_date": bson.M{"$lte": tradeDate.String()}},
+			options.FindOne().SetSort(bson.D{{Key: "trade_date", Value: -1}})).
+		Decode(&dto)
+	if err != nil {
+		return nil, translateMongo(err, "股票(%s) 截至 %s 的行情", code.FullSymbol(), tradeDate.String())
+	}
+	q := dto.ToDomain()
+	return &q, nil
+}
+
 // LatestQuotes 一次取回一批标的的最新行情。
 //
 // 用聚合管道的 $sort + $group($first) 而不是在 Go 里对每个 symbol 发一次 FindOne：
@@ -214,17 +256,53 @@ func (repo *MarketDataRepository) SaveFinancials(ctx context.Context, items []va
 	return repo.bulkWrite(ctx, collFinancials, models, "财务数据")
 }
 
-func (repo *MarketDataRepository) Financials(ctx context.Context, code shared_vo.StockCode, limit int) ([]value_objects.Financial, error) {
+// Financials 取截至 asOf 已公开披露的财报，按报告期倒序。
+//
+// # 过滤为什么在 Go 里而不是写进查询条件
+//
+// 判定「这份财报当天公布了没有」有两条分支：有披露日就直接比，
+// 没有（老数据、以及不提供该字段的数据源）则退到按报告期加保守滞后期估算，
+// 而滞后期还随年报/季报而不同。把这套规则翻成一条 Mongo 表达式，
+// 等于把一条领域规则复制进查询语言里——它随后会和 Financial.DisclosedBy 分叉，
+// 而分叉的表现是「同一份财报在报告里出现、在回测里消失」。
+//
+// 代价是要多取一些再截断：过滤掉的都是尚未披露的近期财报，
+// 多取一倍足以覆盖。宁可多读几行，也不要两处规则各写一份。
+func (repo *MarketDataRepository) Financials(
+	ctx context.Context,
+	code shared_vo.StockCode,
+	asOf shared_vo.TradeDate,
+	limit int,
+) ([]value_objects.Financial, error) {
 	if code.IsZero() {
 		return nil, custom_errors.Invalid("股票代码不能为空")
 	}
+	fetch := limit
+	if !asOf.IsZero() && fetch > 0 {
+		fetch = fetch*2 + 4
+	}
 	var rows []dtos.FinancialDto
 	err := repo.find(ctx, collFinancials, bson.M{"symbol": code.Symbol},
-		bson.D{{Key: "report_date", Value: -1}}, limit, &rows)
+		bson.D{{Key: "report_date", Value: -1}}, fetch, &rows)
 	if err != nil {
 		return nil, translateMongo(err, "股票(%s) 财务数据", code.FullSymbol())
 	}
-	return dtos.ToDomainFinancials(rows), nil
+
+	items := dtos.ToDomainFinancials(rows)
+	if asOf.IsZero() {
+		return items, nil
+	}
+	kept := make([]value_objects.Financial, 0, len(items))
+	for _, f := range items {
+		if !f.DisclosedBy(asOf) {
+			continue
+		}
+		kept = append(kept, f)
+		if limit > 0 && len(kept) >= limit {
+			break
+		}
+	}
+	return kept, nil
 }
 
 // ---------------------------------------------------------------------------

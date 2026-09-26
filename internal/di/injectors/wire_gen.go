@@ -125,9 +125,10 @@ func CreateHTTPServer(ctx context.Context, cfg *config.Config, log *zap.Logger) 
 	completionCache := providers.NewCompletionCache(client)
 	runtimeConfig := providers.NewRuntimeConfig()
 	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
+	evaluationRepository := repositories3.NewEvaluationRepository(database)
 	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
-	agentHandler := http_handlers3.NewAgentHandler(engineService)
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, evaluationRepository, amqpBus, log, engineConfig)
+	agentHandler := http_handlers3.NewAgentHandler(engineService, evaluationRepository)
 	batchRepository := repositories2.NewBatchRepository(db)
 	batchService := domain_services3.NewBatchService(taskRepository, batchRepository, taskDispatcher, concurrencyGuard, amqpBus, policy)
 	http_handlersOperatorResolver := providers.NewAnalysisOperator()
@@ -257,8 +258,9 @@ func CreateAmqpHandlers(ctx context.Context, cfg *config.Config, log *zap.Logger
 	runtimeConfig := providers.NewRuntimeConfig()
 	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
 	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	evaluationRepository := repositories3.NewEvaluationRepository(database)
 	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, evaluationRepository, amqpBus, log, engineConfig)
 	workerConfig := providers.NewAnalysisWorkerConfig(cfg)
 	workerService := domain_services3.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
 	taskDispatchHandler := amqp_handlers2.NewTaskDispatchHandler(workerService, log)
@@ -334,8 +336,9 @@ func CreateWorkerRunners(ctx context.Context, cfg *config.Config, log *zap.Logge
 	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
 	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
 	analysisRunRepository := repositories3.NewAnalysisRunRepository(database)
+	evaluationRepository := repositories3.NewEvaluationRepository(database)
 	engineConfig := providers.NewEngineConfig()
-	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, amqpBus, log, engineConfig)
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, evaluationRepository, amqpBus, log, engineConfig)
 	workerConfig := providers.NewAnalysisWorkerConfig(cfg)
 	workerService := domain_services3.NewWorkerService(taskRepository, batchRepository, taskDispatcher, progressPublisher, concurrencyGuard, batchService, engineService, amqpBus, log, policy, workerConfig)
 	scheduledJobRepository := repositories9.NewScheduledJobRepository(db)
@@ -352,4 +355,55 @@ func CreateWorkerRunners(ctx context.Context, cfg *config.Config, log *zap.Logge
 	schedulerService := providers.NewSchedulerService(scheduledJobRepository, jobExecutionRepository, jobDispatcher, amqpBus, log, schedulerConfig, marketSyncRunner, scheduledAnalysisRunner)
 	workerRunners := providers.NewWorkerRunners(workerService, schedulerService, syncService)
 	return workerRunners, nil
+}
+
+// CreateAnalysisEngine 装配一台可直接驱动的分析引擎，供 backfill 子命令使用。
+//
+// # 为什么回填不走任务队列
+//
+// 走 AnalysisService.Submit 看起来能白捡认领、重试与停滞巡检，但它有两个
+// 对批量回填致命的性质：提交时要占一个 Redis 并发名额（PerUser / Global 上限），
+// 因此几百条一次提交必然在中途被自己的限流挡住；而且那些名额与线上用户共用，
+// 一次回填会把交互式提交的分析全部挤掉——回填是可以慢慢跑的，
+// 有人正等着看的那次不行。
+//
+// 自己驱动则可以把节奏完全捏在手里：一次跑一格、可中断、可续跑，
+// 而成本上限由 EngineConfig.MaxCostUSD 在引擎内部把关，不依赖调用方自律。
+//
+// 它复用 CoreSet 而不是手工装配：LLM 路由要先从数据库读出供应商配置才能解析模型名，
+// 这类依赖顺序由 Wire 从函数签名推导，手写一份迟早和 serve 那边分叉。
+func CreateBackfillDeps(ctx context.Context, cfg *config.Config, log *zap.Logger) (*providers.BackfillDeps, error) {
+	llmhttpClient := providers.NewLLMHTTPClient(cfg)
+	connections, err := providers.NewSingletonConnections(ctx, cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	db := providers.NewGormDB(connections)
+	llmProviderRepository := repositories7.NewLLMProviderRepository(db)
+	providerResolver := domain_services7.NewProviderResolver(llmProviderRepository)
+	router := providers.NewLLMRouter(ctx, cfg, llmhttpClient, providerResolver, log)
+	database := providers.NewMongoDatabase(connections)
+	marketDataRepository := repositories5.NewMarketDataRepository(database)
+	indicatorRepository := repositories3.NewIndicatorRepository(database)
+	stockToolRegistry := domain_services2.NewStockToolRegistry(marketDataRepository, indicatorRepository)
+	promptService := domain_services2.NewPromptService()
+	client := providers.NewRedisClient(connections)
+	completionCache := providers.NewCompletionCache(client)
+	runtimeConfig := providers.NewRuntimeConfig()
+	runtimeService := domain_services2.NewRuntimeService(router, stockToolRegistry, promptService, completionCache, runtimeConfig, log)
+	stockRepository := repositories5.NewStockRepository(db)
+	marketHTTPClient := providers.NewMarketHTTPClient(cfg)
+	composite := providers.NewMarketDataProvider(cfg, marketHTTPClient, log)
+	amqp, err := providers.NewSingletonAmqp(cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	amqpBus := providers.NewDomainEventBus(amqp, log)
+	stockService := domain_services6.NewStockService(stockRepository, marketDataRepository, composite, amqpBus)
+	analysisRunRepository := repositories3.NewAnalysisRunRepository(database)
+	evaluationRepository := repositories3.NewEvaluationRepository(database)
+	engineConfig := providers.NewEngineConfig()
+	engineService := domain_services2.NewEngineService(runtimeService, marketDataRepository, stockService, indicatorRepository, analysisRunRepository, evaluationRepository, amqpBus, log, engineConfig)
+	backfillDeps := providers.NewBackfillDeps(engineService, marketDataRepository, analysisRunRepository, connections)
+	return backfillDeps, nil
 }

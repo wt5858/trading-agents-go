@@ -199,56 +199,74 @@ func ToDomainKlines(rows []KlineDto) []value_objects.Kline {
 // 本来就没有稳定的绝对营收/净利字段，现算只会得到 0 这个假值。
 type FinancialDto struct {
 	codeColumns `bson:",inline"`
-	ReportDate  string          `bson:"report_date"`
-	PeriodType  string          `bson:"period_type"`
-	Revenue     decimal.Decimal `bson:"revenue"`
-	NetProfit   decimal.Decimal `bson:"net_profit"`
-	EPS         decimal.Decimal `bson:"eps"`
-	PE          decimal.Decimal `bson:"pe"`
-	PB          decimal.Decimal `bson:"pb"`
-	ROE         decimal.Decimal `bson:"roe"`
-	GrossMargin decimal.Decimal `bson:"gross_margin"`
-	NetMargin   decimal.Decimal `bson:"net_margin"`
-	DebtRatio   decimal.Decimal `bson:"debt_ratio"`
-	Source      string          `bson:"source"`
-	UpdatedAt   time.Time       `bson:"updated_at"`
+	ReportDate  string `bson:"report_date"`
+	// AnnounceDate 是披露日，omitempty 因为老数据没有这一列。
+	// 它与 ReportDate 的区别见 value_objects.Financial 的字段说明——
+	// 回测能不能用这份财报，取决于它而不是报告期。
+	AnnounceDate string          `bson:"announce_date,omitempty"`
+	PeriodType   string          `bson:"period_type"`
+	Revenue      decimal.Decimal `bson:"revenue"`
+	NetProfit    decimal.Decimal `bson:"net_profit"`
+	EPS          decimal.Decimal `bson:"eps"`
+	PE           decimal.Decimal `bson:"pe"`
+	PB           decimal.Decimal `bson:"pb"`
+	ROE          decimal.Decimal `bson:"roe"`
+	GrossMargin  decimal.Decimal `bson:"gross_margin"`
+	NetMargin    decimal.Decimal `bson:"net_margin"`
+	DebtRatio    decimal.Decimal `bson:"debt_ratio"`
+	Source       string          `bson:"source"`
+	UpdatedAt    time.Time       `bson:"updated_at"`
+}
+
+// tradeDateOrZero 把可能为空的日期串转成交易日，空串得到零值。
+//
+// 不能直接用 MustTradeDate：它对空串 panic，而 announce_date 这一列
+// 在老数据上本来就不存在——读一条 2024 年入库的财报就会打崩整个查询。
+func tradeDateOrZero(s string) shared_vo.TradeDate {
+	if s == "" {
+		return shared_vo.TradeDate{}
+	}
+	return shared_vo.MustTradeDate(s)
 }
 
 func (dto FinancialDto) ToDomain() value_objects.Financial {
 	return value_objects.Financial{
-		Code:        dto.toDomain(),
-		ReportDate:  shared_vo.MustTradeDate(dto.ReportDate),
-		PeriodType:  value_objects.PeriodType(dto.PeriodType),
-		Revenue:     dto.Revenue,
-		NetProfit:   dto.NetProfit,
-		EPS:         dto.EPS,
-		PE:          dto.PE,
-		PB:          dto.PB,
-		ROE:         dto.ROE,
-		GrossMargin: dto.GrossMargin,
-		NetMargin:   dto.NetMargin,
-		DebtRatio:   dto.DebtRatio,
-		Source:      dto.Source,
-		UpdatedAt:   dto.UpdatedAt,
+		Code:       dto.toDomain(),
+		ReportDate: shared_vo.MustTradeDate(dto.ReportDate),
+		// 空串走零值：MustTradeDate 对空串会 panic，而老数据这一列本就是空的。
+		AnnounceDate: tradeDateOrZero(dto.AnnounceDate),
+		PeriodType:   value_objects.PeriodType(dto.PeriodType),
+		Revenue:      dto.Revenue,
+		NetProfit:    dto.NetProfit,
+		EPS:          dto.EPS,
+		PE:           dto.PE,
+		PB:           dto.PB,
+		ROE:          dto.ROE,
+		GrossMargin:  dto.GrossMargin,
+		NetMargin:    dto.NetMargin,
+		DebtRatio:    dto.DebtRatio,
+		Source:       dto.Source,
+		UpdatedAt:    dto.UpdatedAt,
 	}
 }
 
 func FromDomainFinancial(f value_objects.Financial) *FinancialDto {
 	return &FinancialDto{
-		codeColumns: codeColumnsOf(f.Code),
-		ReportDate:  f.ReportDate.String(),
-		PeriodType:  f.PeriodType.String(),
-		Revenue:     f.Revenue,
-		NetProfit:   f.NetProfit,
-		EPS:         f.EPS,
-		PE:          f.PE,
-		PB:          f.PB,
-		ROE:         f.ROE,
-		GrossMargin: f.GrossMargin,
-		NetMargin:   f.NetMargin,
-		DebtRatio:   f.DebtRatio,
-		Source:      f.Source,
-		UpdatedAt:   f.UpdatedAt,
+		codeColumns:  codeColumnsOf(f.Code),
+		ReportDate:   f.ReportDate.String(),
+		AnnounceDate: f.AnnounceDate.String(),
+		PeriodType:   f.PeriodType.String(),
+		Revenue:      f.Revenue,
+		NetProfit:    f.NetProfit,
+		EPS:          f.EPS,
+		PE:           f.PE,
+		PB:           f.PB,
+		ROE:          f.ROE,
+		GrossMargin:  f.GrossMargin,
+		NetMargin:    f.NetMargin,
+		DebtRatio:    f.DebtRatio,
+		Source:       f.Source,
+		UpdatedAt:    f.UpdatedAt,
 	}
 }
 

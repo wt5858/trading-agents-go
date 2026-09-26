@@ -137,6 +137,18 @@ const (
 	KindRiskConservative AgentKind = "risk_conservative"
 	KindRiskNeutral      AgentKind = "risk_neutral"
 	KindRiskManager      AgentKind = "risk_manager"
+
+	// KindSolo 是对照组：一位独立分析师，看同一份素材，一次给出决策。
+	//
+	// # 它不是花名册的一员
+	//
+	// 它刻意不在 AnalystKinds / AllKinds 里，也不进 NewCrew。
+	// 它存在的唯一目的是回答「十四位成员的分工与辩论，相对一次直答多值多少」——
+	// 把它混进编排，这个问题就无从谈起了（对照组跑在实验组内部）。
+	//
+	// 它的层与阶段都取交易层：它产出的是决策块，与交易员同构，
+	// 这样决策解析、轨迹落库、决策链渲染全都不用为它开分支。
+	KindSolo AgentKind = "solo"
 )
 
 // AnalystKinds 是六位分析师，顺序即默认执行顺序（并行时仅影响报告排版）。
@@ -172,7 +184,8 @@ func (k AgentKind) Valid() bool {
 		KindSentimentAnalyst, KindSectorAnalyst, KindIndexAnalyst,
 		KindBullResearcher, KindBearResearcher, KindResearchManager,
 		KindTrader,
-		KindRiskAggressive, KindRiskConservative, KindRiskNeutral, KindRiskManager:
+		KindRiskAggressive, KindRiskConservative, KindRiskNeutral, KindRiskManager,
+		KindSolo:
 		return true
 	}
 	return false
@@ -197,7 +210,7 @@ func (k AgentKind) Layer() Layer {
 		return LayerAnalysis
 	case k == KindBullResearcher, k == KindBearResearcher, k == KindResearchManager:
 		return LayerResearch
-	case k == KindTrader:
+	case k == KindTrader, k == KindSolo:
 		return LayerTrading
 	default:
 		return LayerRisk
@@ -210,7 +223,7 @@ func (k AgentKind) Phase() Phase {
 		return PhaseAnalyst
 	case k == KindBullResearcher, k == KindBearResearcher, k == KindResearchManager:
 		return PhaseDebate
-	case k == KindTrader:
+	case k == KindTrader, k == KindSolo:
 		return PhaseTrading
 	default:
 		return PhaseRisk
@@ -239,6 +252,8 @@ func (k AgentKind) DisplayName() string {
 		return "研究经理"
 	case KindTrader:
 		return "交易员"
+	case KindSolo:
+		return "独立分析师（对照组）"
 	case KindRiskAggressive:
 		return "激进派风控辩手"
 	case KindRiskConservative:
@@ -267,6 +282,12 @@ const (
 	StepTrade StepKey = "trade"
 	// StepReport 对应最后一步「生成分析报告」。
 	StepReport StepKey = "report"
+	// StepSolo 是对照组独立分析师的步骤键。
+	//
+	// 它刻意不出现在 NewProgress 生成的任何进度里——对照组不是主流程的一步，
+	// 跑它的场景（配对实验）也不需要进度条。这个键存在只是因为 Contract
+	// 要求非空步骤键，而那条校验挡的是「正式成员忘了填」。
+	StepSolo StepKey = "solo"
 
 	stepAnalystPrefix = "analyst:"
 	stepDebatePrefix  = "debate:"
@@ -305,6 +326,8 @@ func StepKeyOf(k AgentKind) StepKey {
 		return StepKey(stepRiskPrefix + "neutral")
 	case KindRiskManager:
 		return StepKey(stepRiskPrefix + "manager")
+	case KindSolo:
+		return StepSolo
 	}
 	if k.IsAnalyst() {
 		return AnalystStepKey(k.String())

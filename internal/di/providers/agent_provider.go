@@ -99,6 +99,7 @@ var AgentSet = wire.NewSet(
 	NewCompletionCache,
 	agent_repo.NewIndicatorRepository,
 	agent_repo.NewAnalysisRunRepository,
+	agent_repo.NewEvaluationRepository,
 	agent_services.NewPromptService,
 	agent_services.NewStockToolRegistry,
 	agent_services.NewRuntimeService,

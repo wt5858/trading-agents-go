@@ -3,6 +3,7 @@ package domain_services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -36,6 +37,27 @@ type EngineConfig struct {
 	IndicatorTTL time.Duration
 	// DataFanOutLimit 是数据准备阶段并行取数的上限。
 	DataFanOutLimit int
+	// MaxCostUSD 是单次分析允许花掉的上限，零值或负数表示不设限。
+	//
+	// 它是软护栏：检查发生在每位成员开跑之前，并行阶段因此可能超出一个批次的量。
+	// 要挡的是「一批无人值守的回测把预算烧穿一个数量级」，不是精确停在某个数字上。
+	// 详见 entities.Orchestrator.costCeilingUSD。
+	//
+	// 默认不设限是刻意的：交互式提交的单次分析有人盯着，
+	// 而真正需要护栏的批量回测会显式传一个值——反过来给一个「合理默认」，
+	// 只会让某天某次正常的深度分析在最后一个阶段前被静默砍掉。
+	MaxCostUSD decimal.Decimal
+	// MemoryEnabled 决定要不要把「本系统对该标的的历史战绩」喂回提示词。
+	//
+	// **默认关闭，而且应当一直关着，直到有一个数字说明它是好是坏。**
+	//
+	// 把「你上次看多、其后跌了 8%」告诉模型是一个会改变结论的干预，不是一条中性的补充数据。
+	// 在单只标的只有三五条历史记录的量级上，它很可能有害：那点样本不构成任何证据，
+	// 而模型会把它当成强信号过度修正，表现为结论开始跟着最近一次的对错摇摆。
+	// 因此它的正确用法是作为一个**独立的对照臂**跑一遍配对实验，
+	// 拿到「开与不开，一致率差多少、区间是否重叠」之后再决定，
+	// 而不是默认打开、悄悄改变所有人的结论。
+	MemoryEnabled bool
 }
 
 const (
@@ -102,9 +124,11 @@ type EngineService struct {
 	backfill   MarketBackfiller
 	indicators *repositories.IndicatorRepository
 	runs       *repositories.AnalysisRunRepository
-	publisher  domain_event.Publisher
-	log        *zap.Logger
-	cfg        EngineConfig
+	// evals 只服务于 MemoryEnabled 时的战绩回灌，可为 nil。
+	evals     *repositories.EvaluationRepository
+	publisher domain_event.Publisher
+	log       *zap.Logger
+	cfg       EngineConfig
 }
 
 var _ analysis_services.Engine = (*EngineService)(nil)
@@ -115,6 +139,7 @@ func NewEngineService(
 	backfill MarketBackfiller,
 	indicators *repositories.IndicatorRepository,
 	runs *repositories.AnalysisRunRepository,
+	evals *repositories.EvaluationRepository,
 	publisher domain_event.Publisher,
 	log *zap.Logger,
 	cfg EngineConfig,
@@ -132,10 +157,26 @@ func NewEngineService(
 		backfill:   backfill,
 		indicators: indicators,
 		runs:       runs,
+		evals:      evals,
 		publisher:  publisher,
 		log:        log,
 		cfg:        cfg.normalized(),
 	}
+}
+
+// WithCostCeiling 返回一个成本上限被覆盖的副本。
+//
+// 必须返回副本而不是就地修改：同一个 EngineService 实例由 HTTP 提交、队列消费者
+// 和回填命令共享（Wire 造的是单例），就地改会让一次回填设的紧预算
+// 泄漏到线上用户的分析里，表现为「某天开始所有深度分析都在风控阶段前被砍掉」。
+//
+// 浅拷贝是安全的：本结构体没有锁，字段要么是不可变值（cfg、crew），
+// 要么是本来就被共享的指针与接口（仓储、运行时、日志）——
+// 副本与原件指向同一批依赖，这正是期望的行为。
+func (s *EngineService) WithCostCeiling(limit decimal.Decimal) *EngineService {
+	clone := *s
+	clone.cfg.MaxCostUSD = limit
+	return &clone
 }
 
 // Run 执行一次完整分析。
@@ -185,7 +226,9 @@ func (s *EngineService) Run(
 		s.saveRun(ctx, ac, err)
 		return nil, err
 	}
-	outcomes, runErr := entities.NewOrchestrator(plan, sink).Run(ctx, s.runtime, ac)
+	outcomes, runErr := entities.NewOrchestrator(plan, sink).
+		WithCostCeiling(s.cfg.MaxCostUSD).
+		Run(ctx, s.runtime, ac)
 
 	// 事件先发、轨迹紧随：无论成败，已经发生的消耗与失败都是既成事实，
 	// 计费与监控不该因为整体失败而丢掉这些记录。
@@ -210,6 +253,87 @@ func (s *EngineService) Run(
 		fmt.Sprintf("已汇总 %d 份报告", len(reports)))
 
 	result := analysis_vo.NewResult(req.Code, req.TradeDate, decision, reports,
+		analysis_vo.TokenUsage{
+			PromptTokens:     usage.PromptTokens,
+			CompletionTokens: usage.CompletionTokens,
+			TotalTokens:      usage.TotalTokens,
+			Calls:            usage.Calls,
+			CostUSD:          usage.CostUSD,
+		}, phases)
+	return &result, nil
+}
+
+// RunSolo 跑对照组：一位独立分析师，看**同一份** MarketBrief，一次给出决策。
+//
+// # 这个方法存在的唯一目的
+//
+// 回答「十四位成员的分工、辩论与终裁，相对一次直答到底多值多少」。
+// 它与 Run 配对使用：同一个标的、同一个交易日各跑一次，比较两边的决策方向。
+//
+// # 为什么必须复用 collect 而不是另写一条取数路径
+//
+// 这是整个实验唯一的承重约束：两边看到的素材必须逐字节相同。
+// 一旦对照组走自己的取数逻辑（哪怕只是回看天数差几天），
+// 测出来的差异里就混进了「谁拿到的数据更好」，而那个变量的影响
+// 大概率比编排本身还大——于是这个实验测的就不再是它声称要测的东西。
+// 复用 collect 让这条约束由代码结构保证，不依赖两处逻辑保持同步。
+//
+// # 为什么不汇报进度
+//
+// 对照组不是主流程的一步，NewProgress 里没有它的格子。
+// 传进来的 reporter 会被忽略，理由见 value_objects.StepSolo。
+func (s *EngineService) RunSolo(
+	ctx context.Context,
+	runID string,
+	req analysis_vo.Request,
+) (*analysis_vo.Result, error) {
+	if s.runtime == nil {
+		return nil, custom_errors.Internal("分析引擎未配置运行时")
+	}
+	started := time.Now()
+	ac := entities.NewAnalysisContext(runID, req)
+
+	brief, err := s.collect(ctx, req)
+	if err != nil {
+		s.saveRun(ctx, ac, err)
+		return nil, err
+	}
+	ac.LoadMarketBrief(brief)
+	dataPhase := entities.StageOutcome{
+		Phase:    value_objects.PhaseDataCollection,
+		Duration: time.Since(started),
+	}
+
+	// 单成员的「编排」：一个阶段、一位成员。
+	//
+	// 走编排器而不是直接调 Runtime.Execute，是为了让对照组与实验组共用
+	// 同一套失败语义、成本护栏与轨迹记账——否则两边的成本统计口径会悄悄分叉，
+	// 而这个实验要报的恰恰是成本倍数。
+	solo := entities.NewSoloAnalyst()
+	plan := entities.Plan{Stages: []entities.Stage{{
+		Phase:      value_objects.PhaseTrading,
+		Mode:       value_objects.ModeSequential,
+		Members:    []entities.Agent{solo},
+		MinSuccess: 1,
+	}}}
+
+	outcomes, runErr := entities.NewOrchestrator(plan, nil).
+		WithCostCeiling(s.cfg.MaxCostUSD).
+		Run(ctx, s.runtime, ac)
+
+	s.publish(ctx, ac)
+	s.saveRun(ctx, ac, runErr)
+	if runErr != nil {
+		return nil, runErr
+	}
+
+	usage := ac.Usage()
+	phases := make([]analysis_vo.PhaseOutcome, 0, len(outcomes)+1)
+	phases = append(phases, toPhaseOutcome(dataPhase))
+	phases = append(phases, mergePhases(outcomes)...)
+
+	result := analysis_vo.NewResult(req.Code, req.TradeDate,
+		ac.FinalDecision().Decision, ac.Reports(),
 		analysis_vo.TokenUsage{
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
@@ -297,7 +421,8 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 		run  func(context.Context) error
 	}{
 		{"行情快照", func(ctx context.Context) error {
-			q, err := s.market.LatestQuote(ctx, req.Code)
+			// 与上面的 newsRange 同一条纪律：右端锁在 req.TradeDate，不用今天。
+			q, err := s.market.QuoteAsOf(ctx, req.Code, req.TradeDate)
 			if err != nil {
 				return err
 			}
@@ -305,7 +430,8 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 			return nil
 		}},
 		{"财务数据", func(ctx context.Context) error {
-			items, err := s.market.Financials(ctx, req.Code, s.cfg.FinancialLimit)
+			// 同一条纪律：只取分析交易日当天已经公布的财报。
+			items, err := s.market.Financials(ctx, req.Code, req.TradeDate, s.cfg.FinancialLimit)
 			financials = items
 			return err
 		}},
@@ -346,6 +472,7 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 	brief.Financials = financials
 	brief.News = news
 	brief.Social = social
+	brief.TrackRecord = s.trackRecordOf(ctx, req)
 
 	// 一份素材都没有时没有分析的必要：让十四位成员对着空白轮流发言，
 	// 只会产出十四份措辞漂亮的臆测。
@@ -355,6 +482,75 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 	}
 	return brief, nil
 }
+
+// trackRecordOf 渲染「本系统对该标的的历史战绩」，未开启时返回空串。
+//
+// 查询失败只记日志、返回空串，绝不让整次分析失败：这是一条可选的补充素材，
+// 让一次已经备齐全部行情的分析因为「战绩查不到」而报错，
+// 是把一个实验性功能的可用性绑在了主流程上。
+//
+// 只统计**严格早于**本次交易日的记录。这条过滤是这个功能的成立前提：
+// 少了它，对历史交易日跑回填时，模型会看到那一天之后才产生的评分结果——
+// 一个不会报错、只会让回测结果准得可疑的未来函数。
+func (s *EngineService) trackRecordOf(ctx context.Context, req analysis_vo.Request) string {
+	if !s.cfg.MemoryEnabled || s.evals == nil {
+		return ""
+	}
+	rec, err := s.evals.TrackRecordOf(ctx, req.Code.Symbol)
+	if err != nil {
+		s.log.Warn("查询历史战绩失败", zap.String("symbol", req.Code.FullSymbol()), zap.Error(err))
+		return ""
+	}
+	return renderTrackRecord(rec, req.TradeDate.String(), trackRecordShowLimit)
+}
+
+// renderTrackRecord 过滤并渲染战绩，是这个功能里唯一有判断的一段。
+//
+// 与查询分开是为了能被测试直接钉住：下面那条 cutoff 过滤是整个功能的成立前提，
+// 而它的失效不会报错、只会让回测结果准得可疑。
+//
+// cutoff 为空串表示实时分析（请求没带交易日），此时全部历史都是过去，不需要过滤。
+func renderTrackRecord(rec repositories.TrackRecord, cutoff string, limit int) string {
+	var (
+		sb     strings.Builder
+		scored int
+		hits   int
+		shown  int
+	)
+	for _, sample := range rec.Samples {
+		// 交易日是定长 ISO 串，字典序即时间序。
+		//
+		// 用 >= 而不是 >：本次交易日当天的那条记录同样要排除。
+		// 它评的正是「这一天的建议后来怎么样」——把它喂回给正在做这一天决策的模型，
+		// 等于直接把答案告诉它。这是这段代码里最容易写错、也最难发现的一个字符。
+		if cutoff != "" && sample.TradeDate >= cutoff {
+			continue
+		}
+		scored++
+		if sample.Hit {
+			hits++
+		}
+		if shown >= limit {
+			continue
+		}
+		shown++
+		verdict := "未兑现"
+		if sample.Hit {
+			verdict = "兑现"
+		}
+		fmt.Fprintf(&sb, "- %s 建议「%s」，其后 %s%%（%s）\n",
+			sample.TradeDate, sample.Action, sample.ReturnPct.StringFixed(2), verdict)
+	}
+	if scored == 0 {
+		return ""
+	}
+	return fmt.Sprintf("累计 %d 次已评分建议，方向判对 %d 次。最近几次：\n%s",
+		scored, hits, strings.TrimRight(sb.String(), "\n"))
+}
+
+// trackRecordShowLimit 是写进提示词的战绩条数上限。
+// 战绩会内联进十四位成员的每一份提示词，全量列出会挤占本该留给行情的上下文。
+const trackRecordShowLimit = 8
 
 // loadKlines 取 K 线，本地为空时走一次回源。
 //

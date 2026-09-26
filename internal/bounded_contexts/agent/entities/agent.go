@@ -111,6 +111,7 @@ func (m *CrewMember) turn(started time.Time, res TurnResult) value_objects.TurnR
 		Content:      res.Content,
 		Usage:        res.Usage,
 		ToolRounds:   res.ToolRounds,
+		ToolCalls:    res.ToolCalls,
 		Truncated:    res.Truncated,
 		CacheHit:     res.CacheHit,
 	}

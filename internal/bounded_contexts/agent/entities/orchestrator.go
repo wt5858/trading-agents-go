@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/value_objects"
 	analysis_vo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
 	"github.com/wt5858/trading-agents-go/internal/helpers/concurrency"
@@ -208,6 +210,25 @@ type Orchestrator struct {
 	// 知道自己正在并行；让每个 sink 实现各自加锁，等于把一个并发约束
 	// 分发给所有实现者，迟早有人漏掉。
 	reportMu sync.Mutex
+
+	// costCeilingUSD 是本次分析允许花掉的上限，零值或负数表示不设限。
+	//
+	// # 为什么天花板在编排器而不在聚合根
+	//
+	// AnalysisContext 负责记录「已经发生了什么」，包括累计消耗；
+	// 而「花到多少就不许再跑了」是一条编排决策——它要回答的是
+	// 下一位成员该不该上，那是编排器的职责。放进聚合根会让它同时
+	// 扮演账本与闸门两个角色，而闸门的策略（软停还是硬停、检查在阶段间还是成员间）
+	// 是会变的，账本不该跟着变。
+	//
+	// # 为什么是软护栏
+	//
+	// 检查发生在每位成员开跑之前，而并行阶段里六位分析师会几乎同时通过检查，
+	// 因此实际花费可以超出上限一个「并行批次」的量。这是刻意的取舍：
+	// 要做到分文不差，就得在模型调用中途中断，那样付了钱却拿不到任何产出。
+	// 这道护栏要挡的是「一批无人值守的回测把预算烧穿一个数量级」，
+	// 不是「精确停在 10.00 美元」。
+	costCeilingUSD decimal.Decimal
 }
 
 func NewOrchestrator(plan Plan, sink ProgressSink) *Orchestrator {
@@ -215,6 +236,27 @@ func NewOrchestrator(plan Plan, sink ProgressSink) *Orchestrator {
 		sink = NoopProgressSink()
 	}
 	return &Orchestrator{plan: plan, sink: sink}
+}
+
+// WithCostCeiling 设定本次分析的成本上限，返回自身以便链式调用。
+//
+// 做成可选设置而不是构造参数：绝大多数调用点（包括全部测试）不关心预算，
+// 强制它们传一个 decimal.Zero 只会让「没设上限」这件事看起来像是忘了填。
+func (o *Orchestrator) WithCostCeiling(limit decimal.Decimal) *Orchestrator {
+	o.costCeilingUSD = limit
+	return o
+}
+
+// budgetExceeded 判定累计成本是否已经越过天花板。
+//
+// 未设上限时恒为 false——这里必须显式判零，否则 decimal 的零值会让
+// 「不限预算」变成「一分钱都不许花」，而它的表现是所有成员在第二位就集体跳过，
+// 看起来完全不像是配置问题。
+func (o *Orchestrator) budgetExceeded(ac *AnalysisContext) bool {
+	if o.costCeilingUSD.LessThanOrEqual(decimal.Zero) {
+		return false
+	}
+	return ac.Usage().CostUSD.GreaterThanOrEqual(o.costCeilingUSD)
 }
 
 func (o *Orchestrator) Plan() Plan { return o.plan }
@@ -237,6 +279,13 @@ func (o *Orchestrator) Run(ctx context.Context, rt Runtime, ac *AnalysisContext)
 	for _, stage := range o.plan.Stages {
 		if err := ctx.Err(); err != nil {
 			return outcomes, err
+		}
+		// 阶段之间是最划算的止损点：此处停下来，已完成阶段的产出全部保留，
+		// 而下一阶段那三到六次调用一次都不会发生。
+		if o.budgetExceeded(ac) {
+			return outcomes, custom_errors.Unavailable(
+				"本次分析已达成本上限（%s USD），剩余阶段未执行",
+				o.costCeilingUSD.StringFixed(4))
 		}
 		outcome, err := o.runStage(ctx, stage, rt, ac)
 		outcomes = append(outcomes, outcome)
@@ -334,6 +383,14 @@ func (o *Orchestrator) runSequential(ctx context.Context, stage Stage, rt Runtim
 // 而「什么时候算完成一步」是编排层面的判断。
 func (o *Orchestrator) runMember(ctx context.Context, m Agent, rt Runtime, ac *AnalysisContext) error {
 	contract := m.Contract()
+	// 阶段间的检查挡不住阶段**内**的持续消耗：一个并行阶段里六位分析师
+	// 分两批跑完，第二批开跑时预算可能已经在第一批手里花光了。
+	// 这里再拦一道，代价是一次读锁。
+	if o.budgetExceeded(ac) {
+		reason := "已达本次分析的成本上限，该成员未执行"
+		o.report(false, contract.Step, reason)
+		return custom_errors.Unavailable("%s", reason)
+	}
 	if err := m.Act(ctx, rt, ac); err != nil {
 		o.report(false, contract.Step, custom_errors.MessageOf(err))
 		return err

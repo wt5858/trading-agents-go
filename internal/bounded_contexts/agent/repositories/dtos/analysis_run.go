@@ -38,8 +38,13 @@ type turnColumns struct {
 	Calls            int             `bson:"calls"`
 	CostUSD          decimal.Decimal `bson:"cost_usd"`
 
-	ToolRounds int  `bson:"tool_rounds"`
-	Truncated  bool `bson:"truncated"`
+	ToolRounds int `bson:"tool_rounds"`
+	// ToolCalls 是这次发言里每次工具调用的明细，同样内嵌，理由同 turns 本身。
+	//
+	// omitempty：缓存命中与零工具的发言占了轨迹的大头，
+	// 给它们各存一个空数组会让每份运行文档白白多出十四个字段。
+	ToolCalls []toolCallColumns `bson:"tool_calls,omitempty"`
+	Truncated bool              `bson:"truncated"`
 	// CacheHit 为真时上面那几列消耗全是 0，因为这次发言取自缓存。
 	// 不存这一列的话，轨迹里会出现一条「零 token 却有完整报告」的记录，
 	// 看起来像计费漏记。
@@ -47,6 +52,22 @@ type turnColumns struct {
 
 	Failed     bool   `bson:"failed"`
 	FailReason string `bson:"fail_reason,omitempty"`
+}
+
+// toolCallColumns 是一次工具调用的落库形态。
+//
+// 不存参数原文：模型幻觉出的超长参数会把运行文档撑大，而排查要的是
+// 「调了什么、成没成、多久」。真要复现入参，对话记录里有完整的 ToolCall。
+type toolCallColumns struct {
+	Round int    `bson:"round"`
+	Name  string `bson:"name"`
+	OK    bool   `bson:"ok"`
+	// FailReason 只在失败时存在，因此 omitempty；OK 那一列才是统计口径，
+	// 聚合失败率时数的是 ok:false，不是「这个字段非空」。
+	FailReason  string `bson:"fail_reason,omitempty"`
+	DurationMS  int64  `bson:"duration_ms"`
+	ResultChars int    `bson:"result_chars"`
+	Truncated   bool   `bson:"truncated"`
 }
 
 func turnColumnsOf(r value_objects.TurnRecord) turnColumns {
@@ -74,12 +95,56 @@ func turnColumnsOf(r value_objects.TurnRecord) turnColumns {
 		CostUSD: r.Usage.CostUSD,
 
 		ToolRounds: r.ToolRounds,
+		ToolCalls:  toolCallColumnsOf(r.ToolCalls),
 		Truncated:  r.Truncated,
 		CacheHit:   r.CacheHit,
 
 		Failed:     r.Failed,
 		FailReason: r.FailReason,
 	}
+}
+
+// toolCallColumnsOf 对空输入返回 nil 而不是空切片，配合 omitempty
+// 让「没调过工具」这件事在文档里不占字段。
+func toolCallColumnsOf(in []value_objects.ToolCallRecord) []toolCallColumns {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]toolCallColumns, 0, len(in))
+	for _, r := range in {
+		out = append(out, toolCallColumns{
+			Round:       r.Round,
+			Name:        r.Name.String(),
+			OK:          r.OK,
+			FailReason:  r.FailReason,
+			DurationMS:  r.DurationMS(),
+			ResultChars: r.ResultChars,
+			Truncated:   r.Truncated,
+		})
+	}
+	return out
+}
+
+func (c turnColumns) toolCallsToDomain() []value_objects.ToolCallRecord {
+	if len(c.ToolCalls) == 0 {
+		return nil
+	}
+	out := make([]value_objects.ToolCallRecord, 0, len(c.ToolCalls))
+	for _, t := range c.ToolCalls {
+		out = append(out, value_objects.ToolCallRecord{
+			Round: t.Round,
+			// 直接转换而不走 NewToolName：读路径要能原样回放历史轨迹，
+			// 包括那些工具后来被改名或下线的运行。在这里做校验，
+			// 只会让老数据在看板上凭空消失。
+			Name:        value_objects.ToolName(t.Name),
+			OK:          t.OK,
+			FailReason:  t.FailReason,
+			Duration:    time.Duration(t.DurationMS) * time.Millisecond,
+			ResultChars: t.ResultChars,
+			Truncated:   t.Truncated,
+		})
+	}
+	return out
 }
 
 func (c turnColumns) toDomain() value_objects.TurnRecord {
@@ -101,6 +166,7 @@ func (c turnColumns) toDomain() value_objects.TurnRecord {
 			CostUSD:          c.CostUSD,
 		},
 		ToolRounds: c.ToolRounds,
+		ToolCalls:  c.toolCallsToDomain(),
 		Truncated:  c.Truncated,
 		CacheHit:   c.CacheHit,
 		Failed:     c.Failed,

@@ -142,7 +142,24 @@ func printEvaluation(id string, window shared_vo.DateRange, horizon int, st agen
 	}
 
 	fmt.Fprintf(w, "命中\t%d\n", st.Hits)
-	fmt.Fprintf(w, "方向一致率\t%s\n", decimalx.FormatRatio(st.HitRate))
+	// 一致率永远与样本量、置信区间一起打，三者缺一不可。
+	// 「58%」单独拿出来什么都说明不了：n=30 时它的区间大约是 [40%, 74%]，
+	// 与抛硬币无法区分。把区间省掉，读者（包括作者自己）会把小样本的波动
+	// 当成系统的能力——这是这类评测最常见也最难自察的错误。
+	fmt.Fprintf(w, "方向一致率\t%s\t%s\n",
+		decimalx.FormatRatio(st.HitRate), formatCI(st.HitRateCI))
+
+	// 基线与系统结论用同一批样本，因此两行可以直接比。
+	// 没有基线的一致率是无法解释的：牛市里「无脑全买入」也能有 65%，
+	// 此时系统的 58% 其实是负贡献，而单看 58% 它看起来比抛硬币强。
+	for _, b := range st.Baselines {
+		fmt.Fprintf(w, "  对照·%s\t%s\t%s\n",
+			b.Name, decimalx.FormatRatio(b.HitRate), formatCI(b.CI))
+	}
+	if len(st.Baselines) > 0 {
+		fmt.Fprintf(w, "\n两条区间若大面积重叠，说明在当前样本量下分不出高低——\n")
+		fmt.Fprintf(w, "那是样本不足的结论，不是「打平」的结论。\n")
+	}
 
 	fmt.Fprintf(w, "\n按建议动作拆分\n")
 	fmt.Fprintf(w, "动作\t样本\t命中\t一致率\n")
@@ -151,4 +168,13 @@ func printEvaluation(id string, window shared_vo.DateRange, horizon int, st agen
 			a.Action.DisplayName(), a.Scored, a.Hits, decimalx.FormatRatio(a.HitRate))
 	}
 	fmt.Fprintf(w, "\n仅供研究，不构成投资建议；过往表现不代表未来收益。\n\n")
+}
+
+// formatCI 把置信区间渲染成 [下界, 上界] 的百分比形式。
+func formatCI(ci agent_vo.ConfidenceInterval) string {
+	if ci.Lower.IsZero() && ci.Upper.IsZero() {
+		return "（样本不足，无区间）"
+	}
+	return fmt.Sprintf("95%% CI [%s, %s]",
+		decimalx.FormatRatio(ci.Lower), decimalx.FormatRatio(ci.Upper))
 }

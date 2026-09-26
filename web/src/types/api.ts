@@ -23,8 +23,15 @@ export type ProgressView = S['analysis.ProgressView']
 export type ResultView = S['analysis.ResultView']
 export type DecisionChainView = S['analysis.DecisionChainView']
 export type ChainLinkView = S['analysis.ChainLinkView']
+export type ChainToolCallView = S['analysis.ChainToolCallView']
 export type SubmitRequest = S['analysis.SubmitRequest']
 export type Step = S['value_objects.Step']
+
+// 回测评估
+export type EvaluationView = S['agent.EvaluationView']
+export type EvaluationListView = S['agent.EvaluationListView']
+export type BaselineView = S['agent.BaselineView']
+export type ConfidenceIntervalView = S['agent.ConfidenceIntervalView']
 
 // 报告
 export type ReportView = S['report.ReportView']

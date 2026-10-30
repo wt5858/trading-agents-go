@@ -16,6 +16,8 @@ import (
 type ToolName string
 
 const (
+	ToolGetSectorContext   ToolName = "get_sector_context"
+	ToolGetIndexContext    ToolName = "get_index_context"
 	ToolGetQuote           ToolName = "get_quote"
 	ToolGetKlines          ToolName = "get_klines"
 	ToolGetTechnicalIndics ToolName = "get_technical_indicators"
@@ -28,7 +30,7 @@ const (
 func AllToolNames() []ToolName {
 	return []ToolName{
 		ToolGetQuote, ToolGetKlines, ToolGetTechnicalIndics,
-		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment,
+		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment, ToolGetSectorContext, ToolGetIndexContext,
 	}
 }
 
@@ -45,7 +47,7 @@ func NewToolName(s string) (ToolName, error) {
 func (n ToolName) Valid() bool {
 	switch n {
 	case ToolGetQuote, ToolGetKlines, ToolGetTechnicalIndics,
-		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment:
+		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment, ToolGetSectorContext, ToolGetIndexContext:
 		return true
 	}
 	return false

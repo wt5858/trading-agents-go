@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/entities"
@@ -19,9 +20,13 @@ import (
 
 // RuntimeConfig 是运行时的兜底参数，契约里没指定时生效。
 type RuntimeConfig struct {
-	Temperature   float64
-	MaxTokens     int
-	MaxToolRounds int
+	AnalystAgentsEnabled bool
+	MarketAgentEnabled   bool
+	AgentTimeout         time.Duration
+	AgentMaxTotalTokens  int
+	Temperature          float64
+	MaxTokens            int
+	MaxToolRounds        int
 	// ToolFanOutLimit 是同一轮里并行执行工具的上限。
 	ToolFanOutLimit int
 	// MaxToolCallsPerRound 是单轮里允许真正执行的工具调用**总数**上限。
@@ -95,12 +100,13 @@ func (c RuntimeConfig) normalized() RuntimeConfig {
 // （而且也只是间接知道——它只认 LLMClient 端口）。
 // 实体层的十四位成员通过 Runtime 接口使唤它，谁也不认识 OpenAI 或 Anthropic。
 type RuntimeService struct {
-	router  ModelRouter
-	tools   ToolRegistry
-	prompts *PromptService
-	cache   *repositories.CompletionCache
-	cfg     RuntimeConfig
-	log     *zap.Logger
+	modelSlots chan struct{}
+	router     ModelRouter
+	tools      ToolRegistry
+	prompts    *PromptService
+	cache      *repositories.CompletionCache
+	cfg        RuntimeConfig
+	log        *zap.Logger
 }
 
 var _ entities.Runtime = (*RuntimeService)(nil)
@@ -120,7 +126,8 @@ func NewRuntimeService(
 		log = zap.NewNop()
 	}
 	return &RuntimeService{
-		router: router, tools: tools, prompts: prompts,
+		modelSlots: make(chan struct{}, 4),
+		router:     router, tools: tools, prompts: prompts,
 		cache: cache, cfg: cfg.normalized(), log: log,
 	}
 }
@@ -131,6 +138,9 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		return entities.TurnResult{}, custom_errors.Internal("未配置模型路由")
 	}
 
+	if (s.cfg.AnalystAgentsEnabled && turn.Contract.Kind.IsAnalyst()) || (s.cfg.MarketAgentEnabled && turn.Contract.Kind == value_objects.KindMarketAnalyst) {
+		return s.executeMarketAgent(ctx, turn)
+	}
 	messages, err := s.prompts.Render(turn)
 	if err != nil {
 		return entities.TurnResult{}, err
@@ -183,6 +193,7 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		return entities.TurnResult{
 			Usage:        resp.Usage,
 			ToolCalls:    resp.ToolCalls,
+			ModelCalls:   resp.ModelCalls,
 			Model:        resp.Model,
 			PromptChars:  promptChars,
 			PromptDigest: promptDigest,
@@ -201,6 +212,7 @@ func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entit
 		Usage:        resp.Usage,
 		ToolRounds:   resp.ToolRounds,
 		ToolCalls:    resp.ToolCalls,
+		ModelCalls:   resp.ModelCalls,
 		Truncated:    resp.Truncated,
 		Model:        resp.Model,
 		PromptChars:  promptChars,
@@ -279,6 +291,7 @@ func (s *RuntimeService) chat(
 	messages := append([]value_objects.Message(nil), req.Messages...)
 	var usage value_objects.Usage
 	var toolTrace []value_objects.ToolCallRecord
+	var modelCalls []value_objects.ModelCallRecord
 
 	// 解析出来的模型名与工具轨迹统一在出口回填，而不是在下面七个 return 上各写一遍。
 	// 这个循环的退出点会随着厂商的怪异行为继续增加（见下面那条「没给工具也硬发工具调用」），
@@ -287,6 +300,7 @@ func (s *RuntimeService) chat(
 	defer func() {
 		resp.Model = model
 		resp.ToolCalls = toolTrace
+		resp.ModelCalls = modelCalls
 	}()
 
 	maxRounds := req.MaxToolRounds
@@ -302,17 +316,31 @@ func (s *RuntimeService) chat(
 			tools = nil
 		}
 
-		res, err := client.Complete(ctx, value_objects.CompletionRequest{
+		if req.TokenBudget > 0 && usage.TotalTokens >= req.TokenBudget {
+			return value_objects.ChatResponse{Usage: usage}, custom_errors.Unavailable("Agent token budget exhausted")
+		}
+		started := time.Now()
+		res, reservation, err := s.completeLimited(ctx, client, value_objects.CompletionRequest{
 			Model:       model,
 			Messages:    messages,
 			Tools:       tools,
 			Temperature: req.Temperature,
 			MaxTokens:   req.MaxTokens,
 		})
+		rec := value_objects.ModelCallRecord{ReservedCostUSD: reservation, Round: round, Model: model, Provider: client.Provider(), StartedAt: started, Duration: time.Since(started), Failed: err != nil, Usage: value_objects.Usage{CostStatus: "unknown_usage"}}
+		if res != nil {
+			rec.Usage = res.Usage
+			rec.FinishReason = res.FinishReason
+			usage = usage.Plus(res.Usage)
+		}
+		if res == nil && err == nil {
+			err = custom_errors.Unavailable("model returned nil response")
+			rec.Failed = true
+		}
+		modelCalls = append(modelCalls, rec)
 		if err != nil {
 			return value_objects.ChatResponse{Messages: messages, Usage: usage}, err
 		}
-		usage = usage.Plus(res.Usage)
 
 		if !res.HasToolCalls() {
 			return value_objects.ChatResponse{
@@ -522,4 +550,23 @@ func pickToolRounds(contract value_objects.Contract, fallback int) int {
 		return contract.MaxToolRounds
 	}
 	return fallback
+}
+
+// All runtime clones share this request semaphore; waiting respects parent cancellation.
+func (s *RuntimeService) completeLimited(ctx context.Context, client LLMClient, req value_objects.CompletionRequest) (*value_objects.CompletionResult, decimal.Decimal, error) {
+	if s.modelSlots != nil {
+		select {
+		case s.modelSlots <- struct{}{}:
+			defer func() { <-s.modelSlots }()
+		case <-ctx.Done():
+			return nil, decimal.Zero, ctx.Err()
+		}
+	}
+	settle, reservation, err := reserveCost(ctx, client, req)
+	if err != nil {
+		return nil, decimal.Zero, err
+	}
+	result, err := client.Complete(ctx, req)
+	settle(result)
+	return result, reservation, err
 }

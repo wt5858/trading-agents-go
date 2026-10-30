@@ -1,0 +1,28 @@
+[
+  {
+    "code": {
+      "Symbol": "600519",
+      "Market": "CN",
+      "Raw": "600519"
+    },
+    "scope": "sector",
+    "reference": "synthetic-sector",
+    "as_of": "2024-03-01",
+    "available_on": "2024-03-01",
+    "source": "synthetic_fixture",
+    "data": "模拟参考数据：当日收盘100，前一日99。仅用于链路验证。"
+  },
+  {
+    "code": {
+      "Symbol": "600519",
+      "Market": "CN",
+      "Raw": "600519"
+    },
+    "scope": "index",
+    "reference": "synthetic-index",
+    "as_of": "2024-03-01",
+    "available_on": "2024-03-01",
+    "source": "synthetic_fixture",
+    "data": "模拟参考数据：当日收盘100，前一日99。仅用于链路验证。"
+  }
+]

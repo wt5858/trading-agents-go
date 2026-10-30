@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -79,4 +80,42 @@ func lookupPrice(model string) (Price, bool) {
 		return Price{}, false
 	}
 	return prices[best], true
+}
+
+// PriceUsage annotates estimates without claiming an unknown model is free.
+func PriceUsage(model string, u agentvo.Usage) agentvo.Usage {
+	u.CostUSD = CostOf(model, u)
+	u.PricingVersion = "builtin-v1"
+	u.CostStatus = "estimated"
+	if _, ok := lookupPrice(model); !ok {
+		u.CostStatus = "unknown_price"
+	}
+	if u.TotalTokens == 0 {
+		u.CostStatus = "unknown_usage"
+	}
+	return u
+}
+
+// EstimateCost reserves a conservative byte-based input estimate and the full output
+// allowance. Protocol overhead and provider tokenization can differ: this is admission
+// control with settlement, never an exact billing guarantee.
+func estimateRequest(req agentvo.CompletionRequest) (decimal.Decimal, bool) {
+	if _, ok := lookupPrice(req.Model); !ok {
+		return decimal.Zero, false
+	}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return decimal.Zero, false
+	}
+	tokens := len(raw) + 1024
+	return CostOf(req.Model, agentvo.Usage{PromptTokens: tokens, CompletionTokens: req.MaxTokens}), true
+}
+func (c *OpenAICompatClient) EstimateCost(req agentvo.CompletionRequest) (decimal.Decimal, bool) {
+	return estimateRequest(req)
+}
+func (c *AnthropicClient) EstimateCost(req agentvo.CompletionRequest) (decimal.Decimal, bool) {
+	return estimateRequest(req)
+}
+func (c *GoogleClient) EstimateCost(req agentvo.CompletionRequest) (decimal.Decimal, bool) {
+	return estimateRequest(req)
 }

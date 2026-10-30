@@ -151,9 +151,9 @@ func NewSentimentAnalyst() *CrewMember {
 func NewSectorAnalyst() *CrewMember {
 	return newMember(value_objects.KindSectorAnalyst,
 		value_objects.NewDataAccess(
+			value_objects.ToolGetSectorContext,
 			value_objects.ToolGetQuote,
 			value_objects.ToolGetKlines,
-			value_objects.ToolGetFinancials,
 		),
 		value_objects.PolicyTolerant, tempAnalyst, tokensAnalyst, roundsAnalyst)
 }
@@ -162,8 +162,8 @@ func NewSectorAnalyst() *CrewMember {
 func NewIndexAnalyst() *CrewMember {
 	return newMember(value_objects.KindIndexAnalyst,
 		value_objects.NewDataAccess(
+			value_objects.ToolGetIndexContext,
 			value_objects.ToolGetKlines,
-			value_objects.ToolGetTechnicalIndics,
 			value_objects.ToolGetQuote,
 		),
 		value_objects.PolicyTolerant, tempAnalyst, tokensAnalyst, roundsAnalyst)

@@ -57,6 +57,8 @@ func NewStockToolRegistry(market MarketReader, indicators *repositories.Indicato
 		&financialTool{market: market},
 		&newsTool{market: market},
 		&socialTool{market: market},
+		&marketContextTool{market: market, scope: "sector"},
+		&marketContextTool{market: market, scope: "index"},
 	}
 	reg := &StockToolRegistry{tools: make(map[value_objects.ToolName]Tool, len(tools))}
 	for _, t := range tools {
@@ -398,4 +400,40 @@ func (t *socialTool) Invoke(ctx context.Context, in ToolInvocation) (string, err
 		return "该时间窗内没有社交舆情样本。", nil
 	}
 	return formatSocial(items), nil
+}
+
+// Non-agent consumers (e.g. solo baseline) can read the same sourced context dataset.
+type marketContextTool struct {
+	market MarketReader
+	scope  string
+}
+
+func (t *marketContextTool) Spec() value_objects.ToolSpec {
+	name := value_objects.ToolGetSectorContext
+	if t.scope == "index" {
+		name = value_objects.ToolGetIndexContext
+	}
+	return value_objects.NewToolSpec(name, "截至分析交易日已可获得的"+t.scope+"背景，含来源与参考对象", value_objects.NewParamSchema(nil))
+}
+func (t *marketContextTool) Invoke(ctx context.Context, in ToolInvocation) (string, error) {
+	reader, ok := t.market.(interface {
+		MarketContexts(context.Context, shared_vo.StockCode, shared_vo.TradeDate) ([]stock_vo.MarketContext, error)
+	})
+	if !ok {
+		return "", custom_errors.Unavailable("市场背景服务不可用")
+	}
+	items, err := reader.MarketContexts(ctx, in.Code, in.TradeDate)
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	for _, v := range items {
+		if v.Scope == t.scope && v.VisibleTo(in.Code, in.TradeDate) {
+			fmt.Fprintf(&text, "参考:%s 来源:%s 数据日期:%s 可获得日期:%s\n%s\n", v.Reference, v.Source, v.AsOf.String(), v.AvailableOn.String(), v.Data)
+		}
+	}
+	if text.Len() == 0 {
+		return "该分析时点缺少" + t.scope + "数据", nil
+	}
+	return text.String(), nil
 }

@@ -50,6 +50,8 @@ func (s Stance) DisplayName() string {
 
 // ChainLink 是决策链上的一环：一位成员的一次发言。
 type ChainLink struct {
+	ModelCalls    []ChainModelCall
+	AgentArtifact string
 	// Seq 是真实完成顺序，从 1 起。
 	Seq       int
 	Agent     string
@@ -149,4 +151,21 @@ func (c DecisionChain) LinksOfPhase(phase string) []ChainLink {
 		}
 	}
 	return out
+}
+
+// ChainModelCall exposes stored per-request accounting; it never recalculates costs.
+type ChainModelCall struct {
+	ReservedCostUSD  decimal.Decimal `json:"reservedCostUsd"`
+	Round            int             `json:"round"`
+	Model            string          `json:"model"`
+	Provider         string          `json:"provider"`
+	DurationMS       int64           `json:"durationMs"`
+	PromptTokens     int             `json:"promptTokens"`
+	CompletionTokens int             `json:"completionTokens"`
+	TotalTokens      int             `json:"totalTokens"`
+	CostUSD          decimal.Decimal `json:"costUsd"`
+	PricingVersion   string          `json:"pricingVersion"`
+	CostStatus       string          `json:"costStatus"`
+	FinishReason     string          `json:"finishReason"`
+	Failed           bool            `json:"failed"`
 }

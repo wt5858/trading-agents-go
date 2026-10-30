@@ -80,6 +80,7 @@ func EnsureIndexes(ctx context.Context, db *mongo.Database) error {
 	}
 
 	specs := []spec{
+		{"market_contexts", mongo.IndexModel{Keys: bson.D{{Key: "market", Value: 1}, {Key: "symbol", Value: 1}, {Key: "scope", Value: 1}, {Key: "reference", Value: 1}, {Key: "as_of", Value: -1}, {Key: "available_on", Value: -1}, {Key: "source", Value: 1}}, Options: options.Index().SetName("uk_market_context").SetUnique(true)}},
 		// 行情：一只票一个交易日只能有一条快照。
 		{collQuotes, mongo.IndexModel{
 			Keys:    bson.D{{Key: "symbol", Value: 1}, {Key: "trade_date", Value: -1}},

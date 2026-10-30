@@ -78,6 +78,8 @@ func (m Message) IsZero() bool { return m.Role == "" && m.Content == "" }
 // 领域层只做加法、不做单价换算：单价是会过期的外部事实，
 // 让它渗进领域层意味着改一次报价要动领域代码。
 type Usage struct {
+	PricingVersion   string          `json:"pricing_version,omitempty"`
+	CostStatus       string          `json:"cost_status,omitempty"`
 	PromptTokens     int             `json:"prompt_tokens"`
 	CompletionTokens int             `json:"completion_tokens"`
 	TotalTokens      int             `json:"total_tokens"`
@@ -134,6 +136,7 @@ func (r CompletionResult) HasToolCalls() bool { return len(r.ToolCalls) > 0 }
 // 它和 CompletionRequest 的区别就是工具调用循环：CompletionRequest 是单次往返，
 // ChatRequest 描述的是「一直聊到模型不再要工具为止，最多 MaxToolRounds 轮」。
 type ChatRequest struct {
+	TokenBudget   int
 	Model         string
 	Messages      []Message
 	Tools         []ToolSpec
@@ -148,6 +151,7 @@ type ChatRequest struct {
 
 // ChatResponse 是一整轮对话的产出。
 type ChatResponse struct {
+	ModelCalls []ModelCallRecord
 	// Content 是模型最后一条不含工具调用的回复，也就是这位成员的报告正文。
 	Content string
 	// Messages 是完整的对话记录（含工具往返），便于排查「模型到底看到了什么」。

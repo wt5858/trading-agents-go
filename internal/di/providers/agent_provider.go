@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/wire"
@@ -72,10 +73,14 @@ func NewCompletionCache(rdb *redis.Client) *agent_repo.CompletionCache {
 
 func NewRuntimeConfig() agent_services.RuntimeConfig {
 	return agent_services.RuntimeConfig{
-		Temperature:     0.3,
-		MaxTokens:       4096,
-		MaxToolRounds:   5,
-		ToolFanOutLimit: 4,
+		AnalystAgentsEnabled: os.Getenv("ANALYST_AGENTS_ENABLED") != "false" && os.Getenv("MARKET_AGENT_ENABLED") != "false",
+		MarketAgentEnabled:   os.Getenv("ANALYST_AGENTS_ENABLED") != "false" && os.Getenv("MARKET_AGENT_ENABLED") != "false",
+		AgentTimeout:         90 * time.Second,
+		AgentMaxTotalTokens:  20000,
+		Temperature:          0.3,
+		MaxTokens:            4096,
+		MaxToolRounds:        5,
+		ToolFanOutLimit:      4,
 	}
 }
 

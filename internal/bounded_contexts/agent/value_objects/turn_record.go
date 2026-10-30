@@ -28,6 +28,8 @@ import "time"
 // 真正有排查价值的是「两次调用的输入到底是不是同一份」，
 // 这个问题一个摘要就能回答，所以这里只留长度与指纹。
 type TurnRecord struct {
+	ModelCalls    []ModelCallRecord
+	AgentArtifact string
 	// Seq 是本次分析内的发言序号，从 1 起，由聚合根在写锁内分配。
 	//
 	// 并行阶段的完成顺序是不确定的，而排查时需要的恰恰是真实完成顺序

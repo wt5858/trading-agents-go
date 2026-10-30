@@ -17,10 +17,45 @@ import (
 // 而 Mongo 的单文档写入本身就是原子的——把子项内嵌进根文档，
 // 「整个聚合一次写完，不会出现根写进去了子项没写进去」这条约束
 // 由存储引擎直接保证，不需要事务，也不需要在仓储里拼差异更新。
+type modelCallColumns struct {
+	Round            int             `bson:"round"`
+	Model            string          `bson:"model"`
+	Provider         string          `bson:"provider"`
+	StartedAt        time.Time       `bson:"started_at"`
+	Duration         time.Duration   `bson:"duration_ns"`
+	PromptTokens     int             `bson:"prompt_tokens"`
+	CompletionTokens int             `bson:"completion_tokens"`
+	TotalTokens      int             `bson:"total_tokens"`
+	Calls            int             `bson:"calls"`
+	CostUSD          decimal.Decimal `bson:"cost_usd"`
+	PricingVersion   string          `bson:"pricing_version"`
+	CostStatus       string          `bson:"cost_status"`
+	FinishReason     string          `bson:"finish_reason"`
+	Failed           bool            `bson:"failed"`
+	ReservedCostUSD  decimal.Decimal `bson:"reserved_cost_usd"`
+}
+
+func modelCallsOf(in []value_objects.ModelCallRecord) []modelCallColumns {
+	var out []modelCallColumns
+	for _, r := range in {
+		out = append(out, modelCallColumns{r.Round, r.Model, r.Provider, r.StartedAt, r.Duration, r.Usage.PromptTokens, r.Usage.CompletionTokens, r.Usage.TotalTokens, r.Usage.Calls, r.Usage.CostUSD, r.Usage.PricingVersion, r.Usage.CostStatus, r.FinishReason, r.Failed, r.ReservedCostUSD})
+	}
+	return out
+}
+func modelCallsToDomain(in []modelCallColumns) []value_objects.ModelCallRecord {
+	var out []value_objects.ModelCallRecord
+	for _, r := range in {
+		out = append(out, value_objects.ModelCallRecord{ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, StartedAt: r.StartedAt, Duration: r.Duration, Usage: value_objects.Usage{PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, TotalTokens: r.TotalTokens, Calls: r.Calls, CostUSD: r.CostUSD, PricingVersion: r.PricingVersion, CostStatus: r.CostStatus}, FinishReason: r.FinishReason, Failed: r.Failed})
+	}
+	return out
+}
+
 type turnColumns struct {
-	Seq   int    `bson:"seq"`
-	Kind  string `bson:"kind"`
-	Phase string `bson:"phase"`
+	ModelCalls    []modelCallColumns `bson:"model_calls,omitempty"`
+	AgentArtifact string             `bson:"agent_artifact,omitempty"`
+	Seq           int                `bson:"seq"`
+	Kind          string             `bson:"kind"`
+	Phase         string             `bson:"phase"`
 
 	StartedAt time.Time `bson:"started_at"`
 	// DurationMS 存毫秒整数而不是 time.Duration：后者是纳秒整数，
@@ -94,10 +129,12 @@ func turnColumnsOf(r value_objects.TurnRecord) turnColumns {
 		// 重算出来的历史成本和当初真实花掉的钱不是一回事。
 		CostUSD: r.Usage.CostUSD,
 
-		ToolRounds: r.ToolRounds,
-		ToolCalls:  toolCallColumnsOf(r.ToolCalls),
-		Truncated:  r.Truncated,
-		CacheHit:   r.CacheHit,
+		ToolRounds:    r.ToolRounds,
+		ToolCalls:     toolCallColumnsOf(r.ToolCalls),
+		ModelCalls:    modelCallsOf(r.ModelCalls),
+		AgentArtifact: r.AgentArtifact,
+		Truncated:     r.Truncated,
+		CacheHit:      r.CacheHit,
 
 		Failed:     r.Failed,
 		FailReason: r.FailReason,
@@ -165,12 +202,14 @@ func (c turnColumns) toDomain() value_objects.TurnRecord {
 			Calls:            c.Calls,
 			CostUSD:          c.CostUSD,
 		},
-		ToolRounds: c.ToolRounds,
-		ToolCalls:  c.toolCallsToDomain(),
-		Truncated:  c.Truncated,
-		CacheHit:   c.CacheHit,
-		Failed:     c.Failed,
-		FailReason: c.FailReason,
+		ToolRounds:    c.ToolRounds,
+		ToolCalls:     c.toolCallsToDomain(),
+		ModelCalls:    modelCallsToDomain(c.ModelCalls),
+		AgentArtifact: c.AgentArtifact,
+		Truncated:     c.Truncated,
+		CacheHit:      c.CacheHit,
+		Failed:        c.Failed,
+		FailReason:    c.FailReason,
 	}
 }
 

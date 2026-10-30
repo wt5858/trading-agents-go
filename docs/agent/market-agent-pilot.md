@@ -1,0 +1,3 @@
+当前运行方式、开关、数据导入、预算与评测命令请参阅[六角色分析师Agent](analyst-agents.md)。
+
+兼容原CompareMarketAnalyst入口，但其内部现在使用相同冻结证据执行一次内联基线和按需工具Agent；完整能力由CompareAnalyst及EvaluateAnalysts提供。

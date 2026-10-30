@@ -101,7 +101,7 @@ func (c *GoogleClient) Complete(ctx context.Context, req agentvo.CompletionReque
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
-	usage.CostUSD = CostOf(req.Model, usage)
+	usage = PriceUsage(req.Model, usage)
 
 	return &agentvo.CompletionResult{
 		Content:      text.String(),

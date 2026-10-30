@@ -57,6 +57,9 @@ type Task struct {
 // 重新排队的任务按老时间戳判成卡死，然后把它判失败。让两者同进同出，
 // 这类疏漏就变成了不可能，而不是需要靠 review 逐条盯住。
 func (t *Task) setStatus(s value_objects.Status, at time.Time) {
+	if !t.StateChangedAt.IsZero() && !at.After(t.StateChangedAt) {
+		at = t.StateChangedAt.Add(time.Nanosecond)
+	}
 	t.Status = s
 	t.StateChangedAt = at
 }
@@ -115,6 +118,7 @@ func (t *Task) Start() error {
 	}
 	now := time.Now()
 	t.setStatus(value_objects.StatusRunning, now)
+	now = t.StateChangedAt
 	t.Attempts++
 	if t.StartedAt == nil {
 		// 只记首次启动时间，重试不覆盖：Duration() 表达的是「用户等了多久」。
@@ -137,6 +141,7 @@ func (t *Task) Complete(result *value_objects.Result) error {
 	}
 	now := time.Now()
 	t.setStatus(value_objects.StatusCompleted, now)
+	now = t.StateChangedAt
 	t.Result = result
 	t.ErrMsg = ""
 	t.FinishedAt = &now
@@ -167,6 +172,7 @@ func (t *Task) Fail(reason string, maxAttempts int) error {
 	}
 	now := time.Now()
 	t.setStatus(value_objects.StatusFailed, now)
+	now = t.StateChangedAt
 	t.ErrMsg = reason
 	t.FinishedAt = &now
 	// MarkFinal 而不是 WithMessage：失败同样是终局，SSE 靠 Progress.Final 决定收流。

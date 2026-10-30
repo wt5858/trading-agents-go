@@ -651,17 +651,19 @@ func toResultView(r *value_objects.Result) *resultView {
 }
 
 type chainLinkView struct {
-	Seq         int             `json:"seq" example:"3"`
-	Agent       string          `json:"agent" example:"bear"`
-	AgentName   string          `json:"agentName" example:"空头研究员"`
-	Phase       string          `json:"phase" example:"debate"`
-	Stance      string          `json:"stance" example:"bearish"`
-	StanceName  string          `json:"stanceName" example:"看空"`
-	Claim       string          `json:"claim"`
-	Content     string          `json:"content"`
-	DurationS   decimal.Decimal `json:"durationSeconds" swaggertype:"string" example:"12.480"`
-	TotalTokens int             `json:"totalTokens" example:"1820"`
-	CostUSD     decimal.Decimal `json:"costUsd" swaggertype:"string" example:"0.0043"`
+	ModelCalls    []value_objects.ChainModelCall `json:"modelCalls,omitempty"`
+	AgentArtifact json.RawMessage                `json:"agentArtifact,omitempty"`
+	Seq           int                            `json:"seq" example:"3"`
+	Agent         string                         `json:"agent" example:"bear"`
+	AgentName     string                         `json:"agentName" example:"空头研究员"`
+	Phase         string                         `json:"phase" example:"debate"`
+	Stance        string                         `json:"stance" example:"bearish"`
+	StanceName    string                         `json:"stanceName" example:"看空"`
+	Claim         string                         `json:"claim"`
+	Content       string                         `json:"content"`
+	DurationS     decimal.Decimal                `json:"durationSeconds" swaggertype:"string" example:"12.480"`
+	TotalTokens   int                            `json:"totalTokens" example:"1820"`
+	CostUSD       decimal.Decimal                `json:"costUsd" swaggertype:"string" example:"0.0043"`
 	// Model 是这次发言真正落到的模型名，同一条链上各成员可以不同。
 	Model string `json:"model,omitempty" example:"deepseek-chat"`
 	// ToolRounds 是工具调用往返轮数；Truncated 表示撞到轮数上限、产出可能不完整。
@@ -738,24 +740,26 @@ func toDecisionChainView(c *value_objects.DecisionChain) *decisionChainView {
 	links := make([]chainLinkView, 0, len(c.Links))
 	for _, l := range c.Links {
 		links = append(links, chainLinkView{
-			Seq:         l.Seq,
-			Agent:       l.Agent,
-			AgentName:   l.AgentName,
-			Phase:       l.Phase,
-			Stance:      l.Stance.String(),
-			StanceName:  l.Stance.DisplayName(),
-			Claim:       l.Claim,
-			Content:     l.Content,
-			DurationS:   l.DurationS,
-			TotalTokens: l.TotalTokens,
-			CostUSD:     l.CostUSD,
-			Model:       l.Model,
-			ToolRounds:  l.ToolRounds,
-			Truncated:   l.Truncated,
-			CacheHit:    l.CacheHit,
-			ToolCalls:   toChainToolCallViews(l.ToolCalls),
-			Failed:      l.Failed,
-			FailReason:  l.FailReason,
+			Seq:           l.Seq,
+			Agent:         l.Agent,
+			AgentName:     l.AgentName,
+			Phase:         l.Phase,
+			Stance:        l.Stance.String(),
+			StanceName:    l.Stance.DisplayName(),
+			Claim:         l.Claim,
+			Content:       l.Content,
+			DurationS:     l.DurationS,
+			TotalTokens:   l.TotalTokens,
+			CostUSD:       l.CostUSD,
+			Model:         l.Model,
+			ToolRounds:    l.ToolRounds,
+			Truncated:     l.Truncated,
+			CacheHit:      l.CacheHit,
+			ToolCalls:     toChainToolCallViews(l.ToolCalls),
+			ModelCalls:    l.ModelCalls,
+			AgentArtifact: json.RawMessage(l.AgentArtifact),
+			Failed:        l.Failed,
+			FailReason:    l.FailReason,
 		})
 	}
 	return &decisionChainView{

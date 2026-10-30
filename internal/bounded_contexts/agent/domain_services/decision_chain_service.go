@@ -72,11 +72,13 @@ func (s *DecisionChainService) DecisionChain(ctx context.Context, runID string) 
 
 func toChainLink(t value_objects.TurnRecord) analysis_vo.ChainLink {
 	return analysis_vo.ChainLink{
-		Seq:       t.Seq,
-		Agent:     t.Kind.String(),
-		AgentName: t.Kind.DisplayName(),
-		Phase:     t.Phase.String(),
-		Stance:    stanceOf(t.Kind),
+		Seq:           t.Seq,
+		ModelCalls:    toChainModelCalls(t.ModelCalls),
+		AgentArtifact: t.AgentArtifact,
+		Agent:         t.Kind.String(),
+		AgentName:     t.Kind.DisplayName(),
+		Phase:         t.Phase.String(),
+		Stance:        stanceOf(t.Kind),
 		// 失败的发言没有正文可截，Claim 留空，失败原因在 FailReason 里。
 		Claim:   value_objects.ClaimOf(t.Content),
 		Content: t.Content,
@@ -168,4 +170,12 @@ func verdictOf(trace value_objects.RunTrace) analysis_vo.ChainVerdict {
 // 这些秒数会被前端相加，浮点累加会让同一批数字在不同顺序下得到不同的总和。
 func msToSeconds(ms int64) decimal.Decimal {
 	return decimal.NewFromInt(ms).DivRound(thousand, 3)
+}
+
+func toChainModelCalls(in []value_objects.ModelCallRecord) []analysis_vo.ChainModelCall {
+	var out []analysis_vo.ChainModelCall
+	for _, r := range in {
+		out = append(out, analysis_vo.ChainModelCall{ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, DurationMS: r.Duration.Milliseconds(), PromptTokens: r.Usage.PromptTokens, CompletionTokens: r.Usage.CompletionTokens, TotalTokens: r.Usage.TotalTokens, CostUSD: r.Usage.CostUSD, PricingVersion: r.Usage.PricingVersion, CostStatus: r.Usage.CostStatus, FinishReason: r.FinishReason, Failed: r.Failed})
+	}
+	return out
 }

@@ -155,3 +155,8 @@ func (c StockCode) FullSymbol() string {
 func (c StockCode) String() string { return c.FullSymbol() }
 
 func (c StockCode) IsZero() bool { return c.Symbol == "" }
+
+// SameInstrument ignores Raw, which is only the user's input spelling.
+func (c StockCode) SameInstrument(other StockCode) bool {
+	return !c.IsZero() && c.Symbol == other.Symbol && c.Market == other.Market
+}

@@ -96,7 +96,7 @@ func (c *AnthropicClient) Complete(ctx context.Context, req agentvo.CompletionRe
 		TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
 		Calls:            1,
 	}
-	usage.CostUSD = CostOf(req.Model, usage)
+	usage = PriceUsage(req.Model, usage)
 
 	return &agentvo.CompletionResult{
 		Content:      text.String(),

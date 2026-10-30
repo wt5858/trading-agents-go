@@ -101,18 +101,20 @@ func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) e
 // 漏记不会报错，只会让轨迹里那一列在某类失败下永远是空的。
 func (m *CrewMember) turn(started time.Time, res TurnResult) value_objects.TurnRecord {
 	return value_objects.TurnRecord{
-		Kind:         m.contract.Kind,
-		Phase:        m.contract.Phase,
-		StartedAt:    started,
-		Duration:     time.Since(started),
-		Model:        res.Model,
-		PromptChars:  res.PromptChars,
-		PromptDigest: res.PromptDigest,
-		Content:      res.Content,
-		Usage:        res.Usage,
-		ToolRounds:   res.ToolRounds,
-		ToolCalls:    res.ToolCalls,
-		Truncated:    res.Truncated,
-		CacheHit:     res.CacheHit,
+		Kind:          m.contract.Kind,
+		Phase:         m.contract.Phase,
+		StartedAt:     started,
+		Duration:      time.Since(started),
+		Model:         res.Model,
+		PromptChars:   res.PromptChars,
+		PromptDigest:  res.PromptDigest,
+		Content:       res.Content,
+		Usage:         res.Usage,
+		ToolRounds:    res.ToolRounds,
+		ToolCalls:     res.ToolCalls,
+		ModelCalls:    res.ModelCalls,
+		AgentArtifact: res.AgentArtifact,
+		Truncated:     res.Truncated,
+		CacheHit:      res.CacheHit,
 	}
 }

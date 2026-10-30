@@ -28,6 +28,7 @@ import (
 // Indicators 是从 IndicatorRepository **读回来**的，不是在这里算的。
 // 这条规则的理由写在 value_objects/indicators.go 的注释里。
 type MarketBrief struct {
+	Contexts   []stock_vo.MarketContext
 	Name       string
 	Industry   string
 	Quote      stock_vo.Quote
@@ -190,6 +191,8 @@ func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 	}
 	c.seq++
 	rec.Seq = c.seq
+	rec.ModelCalls = append([]value_objects.ModelCallRecord(nil), rec.ModelCalls...)
+	rec.ToolCalls = append([]value_objects.ToolCallRecord(nil), rec.ToolCalls...)
 	c.turns = append(c.turns, rec)
 
 	c.usage = c.usage.Plus(rec.Usage)
@@ -216,7 +219,12 @@ func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 func (c *AnalysisContext) Turns() []value_objects.TurnRecord {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return append([]value_objects.TurnRecord(nil), c.turns...)
+	out := append([]value_objects.TurnRecord(nil), c.turns...)
+	for i := range out {
+		out[i].ModelCalls = append([]value_objects.ModelCallRecord(nil), out[i].ModelCalls...)
+		out[i].ToolCalls = append([]value_objects.ToolCallRecord(nil), out[i].ToolCalls...)
+	}
+	return out
 }
 
 // SetDecision 收下终局决策，并在收下时就把它收敛到合法区间。

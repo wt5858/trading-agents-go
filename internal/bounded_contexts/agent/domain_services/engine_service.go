@@ -39,7 +39,8 @@ type EngineConfig struct {
 	DataFanOutLimit int
 	// MaxCostUSD 是单次分析允许花掉的上限，零值或负数表示不设限。
 	//
-	// 它是软护栏：检查发生在每位成员开跑之前，并行阶段因此可能超出一个批次的量。
+	// 编排器在成员启动前检查；运行时另在每次模型请求前原子预留估算额度，响应后结算。
+	// token化与厂商计费存在误差，因此不是精确账单硬上限；未知报价在启用预算时拒绝调用。
 	// 要挡的是「一批无人值守的回测把预算烧穿一个数量级」，不是精确停在某个数字上。
 	// 详见 entities.Orchestrator.costCeilingUSD。
 	//
@@ -78,8 +79,8 @@ const (
 
 	// defaultDataFanOut 是数据准备阶段的并发上限。
 	//
-	// 这一阶段是四个彼此独立的 Mongo 查询（行情/财务/资讯/舆情），
-	// 4 就是全并行。它发生在任何智能体开跑之前，不会和分析师阶段的扇出叠加，
+	// 这一阶段有行情/财务/资讯/舆情/市场背景五个独立 Mongo 查询，
+	// 并发限制为4。它发生在任何智能体开跑之前，不会和分析师阶段的扇出叠加，
 	// 因此不需要像分析师那样压低。
 	defaultDataFanOut = 4
 )
@@ -199,6 +200,7 @@ func (s *EngineService) Run(
 		return nil, custom_errors.Internal("分析引擎未配置运行时")
 	}
 	sink := progressSinkOf(reporter)
+	ctx = WithCostBudget(ctx, s.cfg.MaxCostUSD)
 	started := time.Now()
 
 	ac := entities.NewAnalysisContext(runID, req)
@@ -290,6 +292,7 @@ func (s *EngineService) RunSolo(
 	if s.runtime == nil {
 		return nil, custom_errors.Internal("分析引擎未配置运行时")
 	}
+	ctx = WithCostBudget(ctx, s.cfg.MaxCostUSD)
 	started := time.Now()
 	ac := entities.NewAnalysisContext(runID, req)
 
@@ -402,7 +405,7 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 		brief.Indicators = snapshot.Indicators
 	}
 
-	// 其余四类数据彼此独立，并行取回。
+	// 其余数据彼此独立，以既定并发上限取回。
 	//
 	// 用 Settle 而不是 Map：这四项没有一项是分析的必要条件——
 	// 没有社交舆情只是让情绪分析师少一个视角，不该让整次分析失败。
@@ -420,6 +423,16 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 		name string
 		run  func(context.Context) error
 	}{
+		{"板块/指数背景", func(ctx context.Context) error {
+			if reader, ok := s.market.(interface {
+				MarketContexts(context.Context, shared_vo.StockCode, shared_vo.TradeDate) ([]stock_vo.MarketContext, error)
+			}); ok {
+				items, err := reader.MarketContexts(ctx, req.Code, req.TradeDate)
+				brief.Contexts = items
+				return err
+			}
+			return nil
+		}},
 		{"行情快照", func(ctx context.Context) error {
 			// 与上面的 newsRange 同一条纪律：右端锁在 req.TradeDate，不用今天。
 			q, err := s.market.QuoteAsOf(ctx, req.Code, req.TradeDate)
@@ -792,3 +805,33 @@ func (s *EngineService) publish(ctx context.Context, ac *entities.AnalysisContex
 
 // thousand 用于毫秒转秒。
 var thousand = decimal.NewFromInt(1000)
+
+// RunAnalyst executes and persists one analyst independently of the crew pipeline.
+func (s *EngineService) RunAnalyst(ctx context.Context, runID string, req analysis_vo.Request, kind value_objects.AgentKind) (value_objects.TurnRecord, error) {
+	ctx = WithCostBudget(ctx, s.cfg.MaxCostUSD)
+	if !kind.IsAnalyst() {
+		return value_objects.TurnRecord{}, custom_errors.Invalid("未知分析师")
+	}
+	rt, ok := s.runtime.(*RuntimeService)
+	if !ok {
+		return value_objects.TurnRecord{}, custom_errors.Unavailable("分析师运行时未配置")
+	}
+	ac := entities.NewAnalysisContext(runID, req)
+	brief, err := s.collect(ctx, req)
+	if err != nil {
+		s.saveRun(ctx, ac, err)
+		return value_objects.TurnRecord{}, err
+	}
+	ac.LoadMarketBrief(brief)
+	clone := *rt
+	clone.cfg.AnalystAgentsEnabled = true
+	clone.cfg.MarketAgentEnabled = true
+	err = s.crew.Member(kind).Act(ctx, &clone, ac)
+	s.publish(ctx, ac)
+	s.saveRun(ctx, ac, err)
+	turns := ac.Turns()
+	if len(turns) == 0 {
+		return value_objects.TurnRecord{}, err
+	}
+	return turns[0], err
+}

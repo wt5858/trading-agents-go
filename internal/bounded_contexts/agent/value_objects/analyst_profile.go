@@ -1,7 +1,5 @@
 package value_objects
 
-import "fmt"
-
 func AnalystObjective(k AgentKind) string {
 	switch k {
 	case KindMarketAnalyst:
@@ -37,12 +35,14 @@ func IsPrimaryAnalystTool(k AgentKind, n ToolName) bool {
 	return false
 }
 func (r AnalystReport) RequirePrimaryEvidence(primary map[string]bool) error {
-	for _, f := range r.Findings {
+	for i, f := range r.Findings {
+		supported := false
 		for _, id := range f.EvidenceIDs {
-			if primary[id] {
-				return nil
-			}
+			supported = supported || primary[id]
+		}
+		if !supported {
+			return validationError("primary_evidence", i, "each finding must cite role-specific evidence", nil)
 		}
 	}
-	return fmt.Errorf("report must cite role-specific evidence")
+	return nil
 }

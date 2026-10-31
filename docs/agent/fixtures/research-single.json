@@ -1,0 +1,94 @@
+{
+  "id": "synthetic-research-financials",
+  "question": "财务摘要是否支持盈利改善？检查反证和无法判断的部分。",
+  "code": "600519",
+  "market": "CN",
+  "trade_date": "2024-03-01",
+  "synthetic": true,
+  "snapshot": {
+    "Quote": {
+      "Code": {
+        "Symbol": "600519",
+        "Market": "CN",
+        "Raw": "600519"
+      },
+      "TradeDate": "2024-03-01",
+      "Close": "100",
+      "Source": "synthetic_fixture"
+    },
+    "Financials": [
+      {
+        "Code": {
+          "Symbol": "600519",
+          "Market": "CN",
+          "Raw": "600519"
+        },
+        "ReportDate": "2023-12-31",
+        "AnnounceDate": "2024-02-01",
+        "Revenue": "1000000",
+        "NetProfit": "100000",
+        "Source": "synthetic_fixture"
+      }
+    ],
+    "News": [
+      {
+        "Code": {
+          "Symbol": "600519",
+          "Market": "CN",
+          "Raw": "600519"
+        },
+        "Title": "模拟公告",
+        "Content": "用于验证工具取证的模拟公告，无真实投资含义。",
+        "URL": "fixture:news-1",
+        "Source": "synthetic_fixture",
+        "PublishedAt": "2024-03-01T08:00:00+08:00"
+      }
+    ],
+    "Social": [
+      {
+        "Code": {
+          "Symbol": "600519",
+          "Market": "CN",
+          "Raw": "600519"
+        },
+        "Platform": "synthetic",
+        "Content": "模拟讨论，只验证取证。",
+        "PublishedAt": "2024-03-01T08:00:00+08:00"
+      }
+    ],
+    "Contexts": [
+      {
+        "code": {
+          "Symbol": "600519",
+          "Market": "CN",
+          "Raw": "600519"
+        },
+        "scope": "sector",
+        "reference": "synthetic-sector",
+        "as_of": "2024-03-01",
+        "available_on": "2024-03-01",
+        "source": "synthetic_fixture",
+        "data": "模拟参考数据：当日收盘100，前一日99。仅用于链路验证。"
+      },
+      {
+        "code": {
+          "Symbol": "600519",
+          "Market": "CN",
+          "Raw": "600519"
+        },
+        "scope": "index",
+        "reference": "synthetic-index",
+        "as_of": "2024-03-01",
+        "available_on": "2024-03-01",
+        "source": "synthetic_fixture",
+        "data": "模拟参考数据：当日收盘100，前一日99。仅用于链路验证。"
+      }
+    ]
+  },
+  "expected": {
+    "status": "complete",
+    "required_claims": [
+      "营收"
+    ]
+  }
+}

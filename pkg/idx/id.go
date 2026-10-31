@@ -23,3 +23,6 @@ func TaskID() string    { return Prefixed("task") }
 func BatchID() string   { return Prefixed("batch") }
 func ReportID() string  { return Prefixed("rpt") }
 func SessionID() string { return New() }
+
+// NewSortable uses UUIDv7 so runs starting in the same BSON millisecond retain order.
+func NewSortable() string { return strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "") }

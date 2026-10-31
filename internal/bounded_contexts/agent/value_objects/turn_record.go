@@ -28,6 +28,11 @@ import "time"
 // 真正有排查价值的是「两次调用的输入到底是不是同一份」，
 // 这个问题一个摘要就能回答，所以这里只留长度与指纹。
 type TurnRecord struct {
+	Skipped       bool
+	SkipReason    string
+	Purpose       string
+	ExecutionID   string
+	AnalystReport *AnalystReport
 	ModelCalls    []ModelCallRecord
 	AgentArtifact string
 	// Seq 是本次分析内的发言序号，从 1 起，由聚合根在写锁内分配。
@@ -100,6 +105,7 @@ type TurnRecord struct {
 // 不记参数原文：参数里会出现模型幻觉出的超长字符串，而排查时真正要知道的是
 // 「调了哪个工具、成没成」。要复现具体入参，对话记录里有完整的 ToolCall。
 type ToolCallRecord struct {
+	Reused bool
 	// Round 是这次调用发生在第几轮工具循环（与 TurnRecord.ToolRounds 同一套计数）。
 	// 它是「模型在第几轮还没查够」的唯一线索，也是判断该不该调大轮数上限的依据。
 	Round int

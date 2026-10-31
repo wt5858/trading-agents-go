@@ -116,3 +116,7 @@ type MarketReader interface {
 type MarketBackfiller interface {
 	Klines(ctx context.Context, in stock_services.KlineQuery) ([]stock_vo.Kline, error)
 }
+
+type AnalysisDataBackfiller interface {
+	PrepareAnalysisData(context.Context, stock_vo.AnalysisDataRequest) (stock_vo.PreparedAnalysisData, error)
+}

@@ -1,6 +1,7 @@
 package dtos
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -8,6 +9,7 @@ import (
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/entities"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/value_objects"
 	analysis_vo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
+	stockvo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/value_objects"
 	shared_vo "github.com/wt5858/trading-agents-go/internal/domain_kernel/value_objects"
 )
 
@@ -18,6 +20,7 @@ import (
 // 「整个聚合一次写完，不会出现根写进去了子项没写进去」这条约束
 // 由存储引擎直接保证，不需要事务，也不需要在仓储里拼差异更新。
 type modelCallColumns struct {
+	Pending          bool            `bson:"pending,omitempty"`
 	Round            int             `bson:"round"`
 	Model            string          `bson:"model"`
 	Provider         string          `bson:"provider"`
@@ -38,24 +41,29 @@ type modelCallColumns struct {
 func modelCallsOf(in []value_objects.ModelCallRecord) []modelCallColumns {
 	var out []modelCallColumns
 	for _, r := range in {
-		out = append(out, modelCallColumns{r.Round, r.Model, r.Provider, r.StartedAt, r.Duration, r.Usage.PromptTokens, r.Usage.CompletionTokens, r.Usage.TotalTokens, r.Usage.Calls, r.Usage.CostUSD, r.Usage.PricingVersion, r.Usage.CostStatus, r.FinishReason, r.Failed, r.ReservedCostUSD})
+		out = append(out, modelCallColumns{r.Pending, r.Round, r.Model, r.Provider, r.StartedAt, r.Duration, r.Usage.PromptTokens, r.Usage.CompletionTokens, r.Usage.TotalTokens, r.Usage.Calls, r.Usage.CostUSD, r.Usage.PricingVersion, r.Usage.CostStatus, r.FinishReason, r.Failed, r.ReservedCostUSD})
 	}
 	return out
 }
 func modelCallsToDomain(in []modelCallColumns) []value_objects.ModelCallRecord {
 	var out []value_objects.ModelCallRecord
 	for _, r := range in {
-		out = append(out, value_objects.ModelCallRecord{ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, StartedAt: r.StartedAt, Duration: r.Duration, Usage: value_objects.Usage{PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, TotalTokens: r.TotalTokens, Calls: r.Calls, CostUSD: r.CostUSD, PricingVersion: r.PricingVersion, CostStatus: r.CostStatus}, FinishReason: r.FinishReason, Failed: r.Failed})
+		out = append(out, value_objects.ModelCallRecord{Pending: r.Pending, ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, StartedAt: r.StartedAt, Duration: r.Duration, Usage: value_objects.Usage{PromptTokens: r.PromptTokens, CompletionTokens: r.CompletionTokens, TotalTokens: r.TotalTokens, Calls: r.Calls, CostUSD: r.CostUSD, PricingVersion: r.PricingVersion, CostStatus: r.CostStatus}, FinishReason: r.FinishReason, Failed: r.Failed})
 	}
 	return out
 }
 
 type turnColumns struct {
-	ModelCalls    []modelCallColumns `bson:"model_calls,omitempty"`
-	AgentArtifact string             `bson:"agent_artifact,omitempty"`
-	Seq           int                `bson:"seq"`
-	Kind          string             `bson:"kind"`
-	Phase         string             `bson:"phase"`
+	Skipped           bool               `bson:"skipped,omitempty"`
+	SkipReason        string             `bson:"skip_reason,omitempty"`
+	Purpose           string             `bson:"purpose,omitempty"`
+	ExecutionID       string             `bson:"execution_id,omitempty"`
+	AnalystReportJSON string             `bson:"analyst_report_json,omitempty"`
+	ModelCalls        []modelCallColumns `bson:"model_calls,omitempty"`
+	AgentArtifact     string             `bson:"agent_artifact,omitempty"`
+	Seq               int                `bson:"seq"`
+	Kind              string             `bson:"kind"`
+	Phase             string             `bson:"phase"`
 
 	StartedAt time.Time `bson:"started_at"`
 	// DurationMS 存毫秒整数而不是 time.Duration：后者是纳秒整数，
@@ -94,9 +102,10 @@ type turnColumns struct {
 // 不存参数原文：模型幻觉出的超长参数会把运行文档撑大，而排查要的是
 // 「调了什么、成没成、多久」。真要复现入参，对话记录里有完整的 ToolCall。
 type toolCallColumns struct {
-	Round int    `bson:"round"`
-	Name  string `bson:"name"`
-	OK    bool   `bson:"ok"`
+	Reused bool   `bson:"reused,omitempty"`
+	Round  int    `bson:"round"`
+	Name   string `bson:"name"`
+	OK     bool   `bson:"ok"`
 	// FailReason 只在失败时存在，因此 omitempty；OK 那一列才是统计口径，
 	// 聚合失败率时数的是 ok:false，不是「这个字段非空」。
 	FailReason  string `bson:"fail_reason,omitempty"`
@@ -106,10 +115,18 @@ type toolCallColumns struct {
 }
 
 func turnColumnsOf(r value_objects.TurnRecord) turnColumns {
+	reportJSON := ""
+	if r.AnalystReport != nil {
+		raw, _ := json.Marshal(r.AnalystReport)
+		reportJSON = string(raw)
+	}
 	return turnColumns{
-		Seq:   r.Seq,
-		Kind:  r.Kind.String(),
-		Phase: r.Phase.String(),
+		Skipped: r.Skipped, SkipReason: r.SkipReason,
+		Purpose: r.Purpose, AnalystReportJSON: reportJSON,
+		ExecutionID: r.ExecutionID,
+		Seq:         r.Seq,
+		Kind:        r.Kind.String(),
+		Phase:       r.Phase.String(),
 		// BSON 的 datetime 精度到毫秒，先截断，免得写进去的时间与读回来的不相等。
 		StartedAt:  r.StartedAt.Truncate(time.Millisecond),
 		DurationMS: r.DurationMS(),
@@ -150,6 +167,7 @@ func toolCallColumnsOf(in []value_objects.ToolCallRecord) []toolCallColumns {
 	out := make([]toolCallColumns, 0, len(in))
 	for _, r := range in {
 		out = append(out, toolCallColumns{
+			Reused:      r.Reused,
 			Round:       r.Round,
 			Name:        r.Name.String(),
 			OK:          r.OK,
@@ -169,7 +187,8 @@ func (c turnColumns) toolCallsToDomain() []value_objects.ToolCallRecord {
 	out := make([]value_objects.ToolCallRecord, 0, len(c.ToolCalls))
 	for _, t := range c.ToolCalls {
 		out = append(out, value_objects.ToolCallRecord{
-			Round: t.Round,
+			Reused: t.Reused,
+			Round:  t.Round,
 			// 直接转换而不走 NewToolName：读路径要能原样回放历史轨迹，
 			// 包括那些工具后来被改名或下线的运行。在这里做校验，
 			// 只会让老数据在看板上凭空消失。
@@ -185,16 +204,27 @@ func (c turnColumns) toolCallsToDomain() []value_objects.ToolCallRecord {
 }
 
 func (c turnColumns) toDomain() value_objects.TurnRecord {
+	var report *value_objects.AnalystReport
+	if c.AnalystReportJSON != "" {
+		var r value_objects.AnalystReport
+		if json.Unmarshal([]byte(c.AnalystReportJSON), &r) == nil {
+			report = &r
+		}
+	}
 	return value_objects.TurnRecord{
-		Seq:          c.Seq,
-		Kind:         value_objects.AgentKind(c.Kind),
-		Phase:        value_objects.Phase(c.Phase),
-		StartedAt:    c.StartedAt,
-		Duration:     time.Duration(c.DurationMS) * time.Millisecond,
-		Model:        c.Model,
-		PromptChars:  c.PromptChars,
-		PromptDigest: c.PromptDigest,
-		Content:      c.Content,
+		Skipped: c.Skipped, SkipReason: c.SkipReason,
+		AnalystReport: report,
+		ExecutionID:   c.ExecutionID,
+		Seq:           c.Seq,
+		Purpose:       c.Purpose,
+		Kind:          value_objects.AgentKind(c.Kind),
+		Phase:         value_objects.Phase(c.Phase),
+		StartedAt:     c.StartedAt,
+		Duration:      time.Duration(c.DurationMS) * time.Millisecond,
+		Model:         c.Model,
+		PromptChars:   c.PromptChars,
+		PromptDigest:  c.PromptDigest,
+		Content:       c.Content,
 		Usage: value_objects.Usage{
 			PromptTokens:     c.PromptTokens,
 			CompletionTokens: c.CompletionTokens,
@@ -268,15 +298,16 @@ func (c decisionColumns) decisionToDomain() analysis_vo.Decision {
 	}
 }
 
-// AnalysisRunDto 对应 agent_runs 集合：一次分析一份文档，主键就是发起它的任务 ID。
-//
-// 用任务 ID 当 _id 而不是自动生成：分析任务的派发消息是至少一次投递，
-// 同一个任务被重投递后会再跑一遍，此时整份轨迹应当被最新一次覆盖，
-// 而不是在集合里堆出两份无从分辨的记录。自然键做主键让这件事由存储层直接保证，
-// 仓储侧不需要任何去重逻辑。
+// AnalysisRunDto stores one execution attempt. LogicalRunID preserves task lookup;
+// _id is the immutable execution ID shared by its checkpoints and final save.
 type AnalysisRunDto struct {
-	RunID       string `bson:"_id"`
-	codeColumns `bson:",inline"`
+	PreparationsJSON string        `bson:"preparations_json,omitempty"`
+	ResearchJSON     string        `bson:"research_json,omitempty"`
+	LogicalRunID     string        `bson:"logical_run_id,omitempty"`
+	InProgress       bool          `bson:"in_progress,omitempty"`
+	PendingTurns     []turnColumns `bson:"pending_turns,omitempty"`
+	RunID            string        `bson:"_id"`
+	CodeColumns      `bson:",inline"`
 	// TradeDate 存 YYYY-MM-DD 定长串，与 agent_indicators 同构，理由见 indicator.go。
 	TradeDate string `bson:"trade_date"`
 	Depth     int    `bson:"depth"`
@@ -309,60 +340,44 @@ type AnalysisRunDto struct {
 //
 // finishedAt 与 failReason 由仓储的调用方给：聚合自己不知道引擎在它之外
 // 还做了装配结果这一步，也不知道编排器最终是带着错误返回的还是正常收尾的。
-func FromDomainAnalysisRun(ac *entities.AnalysisContext, finishedAt time.Time, failReason string) *AnalysisRunDto {
-	turns := ac.Turns()
-	rows := make([]turnColumns, 0, len(turns))
-	for _, t := range turns {
-		rows = append(rows, turnColumnsOf(t))
+func FromDomainAnalysisRun(ac *entities.AnalysisContext, finishedAt time.Time, reason string) *AnalysisRunDto {
+	t := ac.TraceSnapshot(finishedAt, reason)
+	var turns, pending []turnColumns
+	for _, r := range t.Turns {
+		turns = append(turns, turnColumnsOf(r))
 	}
-
-	usage := ac.Usage()
-	startedAt := ac.StartedAt().Truncate(time.Millisecond)
-	finishedAt = finishedAt.Truncate(time.Millisecond)
-
-	return &AnalysisRunDto{
-		RunID:          ac.RunID(),
-		codeColumns:    codeColumnsOf(ac.Code()),
-		TradeDate:      ac.TradeDate().String(),
-		Depth:          ac.Depth().Int(),
-		RequestedModel: ac.Model(),
-
-		StartedAt:  startedAt,
-		FinishedAt: finishedAt,
-		DurationMS: finishedAt.Sub(startedAt).Milliseconds(),
-
-		Turns: rows,
-		// 存 FinalDecision 而不是 Decision：用户看到的结论是前者
-		// （浅层分析没有风控经理，结论从交易员的方案里解析），
-		// 轨迹里记另一个值会让「系统当时到底建议了什么」有两个互相矛盾的答案。
-		Decision: decisionColumnsOf(ac.FinalDecision()),
-
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		TotalTokens:      usage.TotalTokens,
-		Calls:            usage.Calls,
-		CostUSD:          usage.CostUSD,
-
-		Failed:     failReason != "",
-		FailReason: failReason,
+	for _, r := range t.PendingTurns {
+		pending = append(pending, turnColumnsOf(r))
 	}
+	researchJSON := ""
+	if t.Research != nil {
+		raw, _ := json.Marshal(t.Research)
+		researchJSON = string(raw)
+	}
+	preparationsJSON := ""
+	if len(t.DataPreparations) > 0 {
+		raw, _ := json.Marshal(t.DataPreparations)
+		preparationsJSON = string(raw)
+	}
+	return &AnalysisRunDto{PreparationsJSON: preparationsJSON, ResearchJSON: researchJSON, RunID: t.ExecutionID, LogicalRunID: t.RunID, CodeColumns: codeColumnsOf(t.Code), TradeDate: t.TradeDate.String(), Depth: t.Depth.Int(), RequestedModel: t.RequestedModel, StartedAt: t.StartedAt.Truncate(time.Millisecond), FinishedAt: t.FinishedAt.Truncate(time.Millisecond), DurationMS: t.Duration.Milliseconds(), Turns: turns, PendingTurns: pending, Decision: decisionColumnsOf(t.Decision), PromptTokens: t.Usage.PromptTokens, CompletionTokens: t.Usage.CompletionTokens, TotalTokens: t.Usage.TotalTokens, Calls: t.Usage.Calls, CostUSD: t.Usage.CostUSD, Failed: t.Failed, FailReason: t.FailReason}
 }
 
 // AnalysisRunSummaryDto 是 agent_runs 的投影形态：只取评分用得上的几列，
 // 不带 turns。它对应仓储里那条显式写了 projection 的查询，
 // 字段少一个都会让那条查询白白多读几十 KB 正文。
 type AnalysisRunSummaryDto struct {
-	RunID       string `bson:"_id"`
-	codeColumns `bson:",inline"`
-	TradeDate   string          `bson:"trade_date"`
-	Decision    decisionColumns `bson:"decision"`
-	Failed      bool            `bson:"failed"`
+	LogicalRunID string `bson:"logical_run_id,omitempty"`
+	RunID        string `bson:"_id"`
+	CodeColumns  `bson:",inline"`
+	TradeDate    string          `bson:"trade_date"`
+	Decision     decisionColumns `bson:"decision"`
+	Failed       bool            `bson:"failed"`
 }
 
 func (dto AnalysisRunSummaryDto) ToDomain() value_objects.RunSummary {
 	return value_objects.RunSummary{
-		RunID:     dto.RunID,
-		Code:      dto.codeColumns.toDomain(),
+		RunID:     dto.logicalID(),
+		Code:      dto.CodeColumns.toDomain(),
 		TradeDate: shared_vo.MustTradeDate(dto.TradeDate),
 		// 回测只关心「系统建议了什么」，不关心是谁给的，取决策本身即可。
 		Decision: dto.Decision.decisionToDomain(),
@@ -385,13 +400,28 @@ func ToDomainAnalysisRunSummaries(rows []AnalysisRunSummaryDto) []value_objects.
 // 它存在的意义是支撑一次正在进行的运行。回放一次已经结束的分析不需要这些东西，
 // 把它重新拼出来只会让调用方以为自己手里那份还能继续跑。
 func (dto AnalysisRunDto) ToDomain() value_objects.RunTrace {
+	var preparations []stockvo.DataPreparation
+	if dto.PreparationsJSON != "" {
+		_ = json.Unmarshal([]byte(dto.PreparationsJSON), &preparations)
+	}
+	var research *value_objects.ResearchTrace
+	if dto.ResearchJSON != "" {
+		var r value_objects.ResearchTrace
+		if json.Unmarshal([]byte(dto.ResearchJSON), &r) == nil {
+			research = &r
+		}
+	}
+	var pending []value_objects.TurnRecord
+	for _, r := range dto.PendingTurns {
+		pending = append(pending, r.toDomain())
+	}
 	turns := make([]value_objects.TurnRecord, 0, len(dto.Turns))
 	for _, r := range dto.Turns {
 		turns = append(turns, r.toDomain())
 	}
 	return value_objects.RunTrace{
-		RunID:          dto.RunID,
-		Code:           dto.codeColumns.toDomain(),
+		DataPreparations: preparations, Research: research, RunID: dto.logicalID(), ExecutionID: dto.RunID, InProgress: dto.InProgress, PendingTurns: pending,
+		Code:           dto.CodeColumns.toDomain(),
 		TradeDate:      shared_vo.MustTradeDate(dto.TradeDate),
 		Depth:          analysis_vo.Depth(dto.Depth),
 		RequestedModel: dto.RequestedModel,
@@ -410,4 +440,17 @@ func (dto AnalysisRunDto) ToDomain() value_objects.RunTrace {
 		Failed:     dto.Failed,
 		FailReason: dto.FailReason,
 	}
+}
+
+func (dto AnalysisRunDto) logicalID() string {
+	if dto.LogicalRunID != "" {
+		return dto.LogicalRunID
+	}
+	return dto.RunID
+}
+func (dto AnalysisRunSummaryDto) logicalID() string {
+	if dto.LogicalRunID != "" {
+		return dto.LogicalRunID
+	}
+	return dto.RunID
 }

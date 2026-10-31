@@ -92,12 +92,15 @@ func newAnalystEvalCommand() *cobra.Command {
 		if err := json.NewEncoder(out).Encode(report); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "passed=%d failed=%d tokens=%d estimatedCostUSD=%s unknownCostCalls=%d output=%s\n", report.Passed, report.Failed, report.TotalTokens, report.CostUSD.String(), report.UnknownCostCalls, output)
+		fmt.Fprintf(cmd.OutOrStdout(), "passed=%d failed=%d skipped=%d tokens=%d estimatedCostUSD=%s unknownCostCalls=%d output=%s\n", report.Passed, report.Failed, report.Skipped, report.TotalTokens, report.CostUSD.String(), report.UnknownCostCalls, output)
 		if runErr != nil {
 			return runErr
 		}
 		if report.Failed > 0 {
 			return fmt.Errorf("%d agent cases failed; partial results saved", report.Failed)
+		}
+		if report.Labelled > 0 && report.QualityPassed < report.Labelled {
+			return fmt.Errorf("annotated quality checks failed: %d/%d passed; results saved", report.QualityPassed, report.Labelled)
 		}
 		return nil
 	}}

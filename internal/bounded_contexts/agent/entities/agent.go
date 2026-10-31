@@ -63,11 +63,21 @@ func (m *CrewMember) Contract() value_objects.Contract { return m.contract }
 // 也是这位成员占用的时间，把它们排除在外，就再也解释不了
 // 「阶段总耗时比成员耗时之和大一截」这件事。
 func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) error {
+	if err := ctx.Err(); err != nil {
+		return custom_errors.Unavailable("分析已取消").Wrap(err)
+	}
+	if reason := ac.Snapshot().AnalystSkipReason(m.contract.Kind); reason != "" {
+		ac.CommitTurn(m.turn(time.Now(), TurnResult{Skipped: true, SkipReason: reason}))
+		return nil
+	}
 	if rt == nil {
 		return custom_errors.Internal("%s 缺少运行时", m.contract.DisplayName)
 	}
 	started := time.Now()
 	snapshot := ac.Snapshot()
+	if !m.contract.Kind.IsAnalyst() && m.contract.Kind != value_objects.KindSolo && !snapshot.DecisionReady() {
+		return custom_errors.Unavailable("分析证据未达到决策要求")
+	}
 
 	if m.requires != nil {
 		if err := m.requires(snapshot); err != nil {
@@ -82,6 +92,10 @@ func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) e
 		// 所以这里照样把 res 里的消耗与提示词摘要记进去。
 		ac.CommitTurn(m.turn(started, res).Failing(custom_errors.MessageOf(err)))
 		return err
+	}
+	if res.Skipped {
+		ac.CommitTurn(m.turn(started, res))
+		return nil
 	}
 	if res.Content == "" {
 		reason := "模型未返回任何内容"
@@ -101,6 +115,7 @@ func (m *CrewMember) Act(ctx context.Context, rt Runtime, ac *AnalysisContext) e
 // 漏记不会报错，只会让轨迹里那一列在某类失败下永远是空的。
 func (m *CrewMember) turn(started time.Time, res TurnResult) value_objects.TurnRecord {
 	return value_objects.TurnRecord{
+		Skipped: res.Skipped, SkipReason: res.SkipReason,
 		Kind:          m.contract.Kind,
 		Phase:         m.contract.Phase,
 		StartedAt:     started,
@@ -113,6 +128,7 @@ func (m *CrewMember) turn(started time.Time, res TurnResult) value_objects.TurnR
 		ToolRounds:    res.ToolRounds,
 		ToolCalls:     res.ToolCalls,
 		ModelCalls:    res.ModelCalls,
+		AnalystReport: res.AnalystReport,
 		AgentArtifact: res.AgentArtifact,
 		Truncated:     res.Truncated,
 		CacheHit:      res.CacheHit,

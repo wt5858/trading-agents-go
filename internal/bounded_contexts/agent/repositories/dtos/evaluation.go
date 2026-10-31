@@ -16,7 +16,7 @@ import (
 // 而单文档写入让整个聚合的原子性由存储引擎直接保证。
 type sampleColumns struct {
 	RunID       string `bson:"run_id"`
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	TradeDate   string `bson:"trade_date"`
 
 	Action     string          `bson:"action"`
@@ -42,7 +42,7 @@ func sampleColumnsOf(s value_objects.EvalSample) sampleColumns {
 	}
 	return sampleColumns{
 		RunID:       s.RunID,
-		codeColumns: codeColumnsOf(s.Code),
+		CodeColumns: codeColumnsOf(s.Code),
 		TradeDate:   s.TradeDate.String(),
 
 		Action:     s.Action.String(),
@@ -67,7 +67,7 @@ func (c sampleColumns) toDomain() value_objects.EvalSample {
 	}
 	return value_objects.EvalSample{
 		RunID:     c.RunID,
-		Code:      c.codeColumns.toDomain(),
+		Code:      c.CodeColumns.toDomain(),
 		TradeDate: shared_vo.MustTradeDate(c.TradeDate),
 
 		Action:     analysis_vo.Action(c.Action),

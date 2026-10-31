@@ -22,7 +22,7 @@ func pilotTurn(t *testing.T) entities.Turn {
 func TestMarketAgentFrozenEvidenceAndStoredCost(t *testing.T) {
 	turn := pilotTurn(t)
 	reg, _ := freezeMarket(turn)
-	output := vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Claim: "收盘价100", EvidenceIDs: []string{reg.tools[0].evidence.ID}}}}
+	output := vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Kind: "inference", Claim: "收盘价100", EvidenceIDs: []string{reg.tools[0].evidence.ID}, EvidenceQuotes: map[string]string{reg.tools[0].evidence.ID: reg.tools[0].evidence.Data}}}}
 	raw, _ := json.Marshal(output)
 	client := &scriptedClient{replies: []vo.CompletionResult{
 		{ToolCalls: []vo.ToolCall{{ID: "q1", Name: vo.ToolGetQuote}}, Usage: vo.Usage{Calls: 1, TotalTokens: 10, CostUSD: decimal.RequireFromString("0.01")}},
@@ -64,13 +64,19 @@ func TestMarketAgentRejectsUnseenAndMissingEvidence(t *testing.T) {
 				turn.Snapshot.Market.Quote.TradeDate = shared.TradeDate{}
 			}
 			reg, _ := freezeMarket(turn)
-			raw, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "bullish", Findings: []vo.AnalystFinding{{Claim: "编造事实", EvidenceIDs: []string{reg.tools[0].evidence.ID}}}})
+			raw, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "bullish", Findings: []vo.AnalystFinding{{Kind: "inference", Claim: "编造事实", EvidenceIDs: []string{reg.tools[0].evidence.ID}, EvidenceQuotes: map[string]string{reg.tools[0].evidence.ID: reg.tools[0].evidence.Data}}}})
 			replies := []vo.CompletionResult{{Content: string(raw)}}
 			if missing {
 				replies = append([]vo.CompletionResult{{ToolCalls: []vo.ToolCall{{ID: "q", Name: vo.ToolGetQuote}}}}, replies...)
 			}
 			rt := NewRuntimeService(fixedRouter{&scriptedClient{replies: replies}}, nil, nil, nil, RuntimeConfig{MarketAgentEnabled: true}, nil)
 			res, err := rt.Execute(context.Background(), turn)
+			if missing {
+				if err != nil || res.AnalystReport == nil || res.AnalystReport.Status != "insufficient" || len(res.ModelCalls) != 0 {
+					t.Fatalf("missing primary evidence did not abstain: %+v %v", res, err)
+				}
+				return
+			}
 			if err == nil || res.Content != "" || res.AgentArtifact == "" {
 				t.Fatalf("invalid report accepted: %+v %v", res, err)
 			}
@@ -105,9 +111,9 @@ func TestMarketSnapshotFiltersFutureQuote(t *testing.T) {
 func TestMarketAnalystPairedExperiment(t *testing.T) {
 	turn := pilotTurn(t)
 	reg, id := freezeMarket(turn)
-	raw, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Claim: "收盘100", EvidenceIDs: []string{reg.tools[0].evidence.ID}}}})
+	raw, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Kind: "inference", Claim: "收盘100", EvidenceIDs: []string{reg.tools[0].evidence.ID}, EvidenceQuotes: map[string]string{reg.tools[0].evidence.ID: reg.tools[0].evidence.Data}}}})
 	client := &scriptedClient{replies: []vo.CompletionResult{
-		{Content: "旧模式技术报告", Usage: vo.Usage{Calls: 1, TotalTokens: 5}},
+		{Content: string(raw), Usage: vo.Usage{Calls: 1, TotalTokens: 5}},
 		{ToolCalls: []vo.ToolCall{{ID: "q", Name: vo.ToolGetQuote}}, Usage: vo.Usage{Calls: 1, TotalTokens: 10}},
 		{Content: string(raw), Usage: vo.Usage{Calls: 1, TotalTokens: 15}},
 	}}

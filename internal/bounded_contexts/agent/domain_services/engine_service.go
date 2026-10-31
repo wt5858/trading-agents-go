@@ -204,9 +204,11 @@ func (s *EngineService) Run(
 	started := time.Now()
 
 	ac := entities.NewAnalysisContext(runID, req)
+	runtime, checkpoint := s.runRuntime(ac, s.runtime)
 
 	// ---- 阶段一：数据准备 ----
 	brief, err := s.collect(ctx, req)
+	ac.LoadMarketBrief(brief)
 	if err != nil {
 		sink.StepFailed(value_objects.StepPrepare.String(), custom_errors.MessageOf(err))
 		// 这一步失败时一位成员都还没发言，轨迹里只有一句「为什么没跑起来」。
@@ -215,7 +217,6 @@ func (s *EngineService) Run(
 		s.saveRun(ctx, ac, err)
 		return nil, err
 	}
-	ac.LoadMarketBrief(brief)
 	sink.Step(value_objects.StepPrepare.String(), prepareDetail(brief))
 	dataPhase := entities.StageOutcome{
 		Phase:    value_objects.PhaseDataCollection,
@@ -229,8 +230,8 @@ func (s *EngineService) Run(
 		return nil, err
 	}
 	outcomes, runErr := entities.NewOrchestrator(plan, sink).
-		WithCostCeiling(s.cfg.MaxCostUSD).
-		Run(ctx, s.runtime, ac)
+		WithCostCeiling(s.cfg.MaxCostUSD).WithCheckpoint(checkpoint).
+		Run(ctx, runtime, ac)
 
 	// 事件先发、轨迹紧随：无论成败，已经发生的消耗与失败都是既成事实，
 	// 计费与监控不该因为整体失败而丢掉这些记录。
@@ -295,13 +296,14 @@ func (s *EngineService) RunSolo(
 	ctx = WithCostBudget(ctx, s.cfg.MaxCostUSD)
 	started := time.Now()
 	ac := entities.NewAnalysisContext(runID, req)
+	runtime, checkpoint := s.runRuntime(ac, s.runtime)
 
 	brief, err := s.collect(ctx, req)
+	ac.LoadMarketBrief(brief)
 	if err != nil {
 		s.saveRun(ctx, ac, err)
 		return nil, err
 	}
-	ac.LoadMarketBrief(brief)
 	dataPhase := entities.StageOutcome{
 		Phase:    value_objects.PhaseDataCollection,
 		Duration: time.Since(started),
@@ -321,8 +323,8 @@ func (s *EngineService) RunSolo(
 	}}}
 
 	outcomes, runErr := entities.NewOrchestrator(plan, nil).
-		WithCostCeiling(s.cfg.MaxCostUSD).
-		Run(ctx, s.runtime, ac)
+		WithCostCeiling(s.cfg.MaxCostUSD).WithCheckpoint(checkpoint).
+		Run(ctx, runtime, ac)
 
 	s.publish(ctx, ac)
 	s.saveRun(ctx, ac, runErr)
@@ -437,7 +439,19 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 			// 与上面的 newsRange 同一条纪律：右端锁在 req.TradeDate，不用今天。
 			q, err := s.market.QuoteAsOf(ctx, req.Code, req.TradeDate)
 			if err != nil {
+				brief.QuoteMissingReason = "行情快照读取失败；本轮冻结数据不会刷新，需重新准备数据。"
+				if custom_errors.CodeOf(err) == custom_errors.CodeNotFound {
+					brief.QuoteMissingReason = "截至分析日期未查到行情快照；请先同步行情，或使用本次已准备的历史日线摘要。"
+				}
 				return err
+			}
+			if q == nil {
+				brief.QuoteMissingReason = "行情查询返回空记录；本轮冻结数据不会随重复调用刷新。"
+				return custom_errors.NotFound("行情快照为空")
+			}
+			if !q.Code.SameInstrument(req.Code) || q.TradeDate.IsZero() || (!req.TradeDate.IsZero() && req.TradeDate.Before(q.TradeDate)) {
+				brief.QuoteMissingReason = "行情记录的标的或交易日期不符合本次分析范围。"
+				return custom_errors.Unavailable("行情快照不符合分析范围")
 			}
 			quote = q
 			return nil
@@ -485,13 +499,17 @@ func (s *EngineService) collect(ctx context.Context, req analysis_vo.Request) (e
 	brief.Financials = financials
 	brief.News = news
 	brief.Social = social
+	if err := s.prepareMissingData(ctx, req, &brief); err != nil {
+		return brief, err
+	}
 	brief.TrackRecord = s.trackRecordOf(ctx, req)
 
 	// 一份素材都没有时没有分析的必要：让十四位成员对着空白轮流发言，
 	// 只会产出十四份措辞漂亮的臆测。
-	if len(brief.Klines) == 0 && quote == nil && len(financials) == 0 && len(news) == 0 {
-		return brief, custom_errors.Unavailable("股票(%s) 在 %s 没有任何可用数据",
-			req.Code.FullSymbol(), req.TradeDate.String())
+	optionalOnly := len(req.Analysts) == 1 && req.Analysts[0] == value_objects.KindSentimentAnalyst.String()
+	if !optionalOnly && len(brief.Klines) == 0 && brief.Quote.Code.IsZero() && len(brief.Financials) == 0 && len(brief.News) == 0 && len(brief.Social) == 0 && len(brief.Contexts) == 0 {
+		return brief, custom_errors.Unavailable("股票(%s) 在 %s 没有任何可用数据；数据准备结果：%s",
+			req.Code.FullSymbol(), req.TradeDate.String(), preparationSummary(brief.DataPreparations))
 	}
 	return brief, nil
 }
@@ -583,7 +601,9 @@ func (s *EngineService) loadKlines(ctx context.Context, req analysis_vo.Request,
 		return klines, nil
 	}
 
-	fetched, err := s.backfill.Klines(ctx, stock_services.KlineQuery{
+	backfillCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	fetched, err := s.backfill.Klines(backfillCtx, stock_services.KlineQuery{
 		Code:   req.Code.Symbol,
 		Market: string(req.Code.Market),
 		Period: period.String(),
@@ -754,8 +774,10 @@ func prepareDetail(b entities.MarketBrief) string {
 
 func toPhaseOutcome(o entities.StageOutcome) analysis_vo.PhaseOutcome {
 	return analysis_vo.PhaseOutcome{
-		Phase:  o.Phase.String(),
-		Agents: kindStrings(o.Agents),
+		SkippedAgents: kindStrings(o.SkippedAgents),
+		Skipped:       o.Skipped,
+		Phase:         o.Phase.String(),
+		Agents:        kindStrings(o.Agents),
 		// 毫秒转秒用 decimal 而不是 Duration.Seconds()：后者返回 float64，
 		// 阶段耗时随后要在 mergePhases 里相加，用浮点累加会让同一批阶段
 		// 在不同合并顺序下得到不同的总时长。
@@ -775,6 +797,8 @@ func mergePhases(outcomes []entities.StageOutcome) []analysis_vo.PhaseOutcome {
 	for _, o := range outcomes {
 		po := toPhaseOutcome(o)
 		if i, ok := index[po.Phase]; ok {
+			out[i].Skipped = out[i].Skipped && po.Skipped
+			out[i].SkippedAgents = append(out[i].SkippedAgents, po.SkippedAgents...)
 			out[i].Agents = append(out[i].Agents, po.Agents...)
 			out[i].Failed = append(out[i].Failed, po.Failed...)
 			out[i].DurationS = out[i].DurationS.Add(po.DurationS)
@@ -817,16 +841,21 @@ func (s *EngineService) RunAnalyst(ctx context.Context, runID string, req analys
 		return value_objects.TurnRecord{}, custom_errors.Unavailable("分析师运行时未配置")
 	}
 	ac := entities.NewAnalysisContext(runID, req)
+	runtime, checkpoint := s.runRuntime(ac, s.runtime)
 	brief, err := s.collect(ctx, req)
+	ac.LoadMarketBrief(brief)
 	if err != nil {
 		s.saveRun(ctx, ac, err)
 		return value_objects.TurnRecord{}, err
 	}
-	ac.LoadMarketBrief(brief)
 	clone := *rt
 	clone.cfg.AnalystAgentsEnabled = true
 	clone.cfg.MarketAgentEnabled = true
-	err = s.crew.Member(kind).Act(ctx, &clone, ac)
+	runtime, checkpoint = s.runRuntime(ac, &clone)
+	err = s.crew.Member(kind).Act(ctx, runtime, ac)
+	if saveErr := checkpoint(ctx); saveErr != nil && err == nil {
+		err = saveErr
+	}
 	s.publish(ctx, ac)
 	s.saveRun(ctx, ac, err)
 	turns := ac.Turns()

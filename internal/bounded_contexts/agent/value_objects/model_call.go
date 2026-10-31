@@ -8,6 +8,7 @@ import (
 
 // ModelCallRecord records one attempted model request, including failed requests.
 type ModelCallRecord struct {
+	Pending         bool
 	ReservedCostUSD decimal.Decimal
 	Round           int
 	Model           string

@@ -21,8 +21,13 @@ func additionalAnalystTools(turn entities.Turn) []frozenTool {
 		}
 	}
 	sort.Slice(financials, func(i, j int) bool { return financials[j].ReportDate.Before(financials[i].ReportDate) })
-	if len(financials) > 8 {
-		financials = financials[:8]
+	financialLimit, newsLimit, socialLimit := 8, 15, 30
+	if turn.Research != nil {
+		financialLimit, newsLimit, socialLimit = 24, 100, 60
+	}
+	financialTruncated := len(financials) > financialLimit
+	if financialTruncated {
+		financials = financials[:financialLimit]
 	}
 	// End of the analysis date in Asia/Shanghai; publication timestamps retain their offsets.
 	date, _ := s.TradeDate.Time()
@@ -45,8 +50,9 @@ func additionalAnalystTools(turn entities.Turn) []frozenTool {
 		}
 		return news[i].PublishedAt.After(news[j].PublishedAt)
 	})
-	if len(news) > 15 {
-		news = news[:15]
+	newsTruncated := len(news) > newsLimit
+	if newsTruncated {
+		news = news[:newsLimit]
 	}
 	var posts []stock.SocialPost
 	for _, p := range s.Market.Social {
@@ -60,17 +66,45 @@ func additionalAnalystTools(turn entities.Turn) []frozenTool {
 		}
 		return posts[i].PublishedAt.After(posts[j].PublishedAt)
 	})
-	if len(posts) > 30 {
-		posts = posts[:30]
+	socialTruncated := len(posts) > socialLimit
+	if socialTruncated {
+		posts = posts[:socialLimit]
 	}
-	create := func(n vo.ToolName, desc, data string, missing bool) frozenTool {
-		return frozenTool{spec: vo.NewToolSpec(n, desc+"。冻结数据，无参数。", vo.NewParamSchema(nil)), evidence: frozenEvidence{Data: data, Missing: missing, Source: "prepared_point_in_time_data"}}
+
+	create := func(name vo.ToolName, docs []evidenceDocument) frozenTool {
+		truncated := map[vo.ToolName]bool{vo.ToolGetFinancials: financialTruncated, vo.ToolGetNews: newsTruncated, vo.ToolGetSocialSentiment: socialTruncated}[name]
+		kind := map[vo.ToolName]stock.AnalysisDataKind{vo.ToolGetFinancials: stock.AnalysisFinancials, vo.ToolGetNews: stock.AnalysisNews, vo.ToolGetSocialSentiment: stock.AnalysisSocial}[name]
+		preparation := preparationOf(s.Market, kind)
+		reason := ""
+		if len(docs) == 0 && preparation != nil {
+			reason = preparation.Message
+		}
+		return frozenTool{spec: vo.NewToolSpec(name, name.String(), vo.NewParamSchema(nil)), documents: docs, evidence: frozenEvidence{Preparation: preparation, MissingReason: reason, Missing: len(docs) == 0, Truncated: truncated, Source: "sourced_documents"}}
 	}
-	out := []frozenTool{
-		create(vo.ToolGetFinancials, "已披露财务", formatFinancials(financials), len(financials) == 0),
-		create(vo.ToolGetNews, "已发布资讯", formatNews(news), len(news) == 0),
-		create(vo.ToolGetSocialSentiment, "已发布社交舆情", formatSocial(posts), len(posts) == 0),
+	var fdocs, ndocs, pdocs []evidenceDocument
+	for _, f := range financials {
+		fdocs = append(fdocs, evidenceDocument{Source: f.Source, AvailableOn: f.AnnounceDate.String(), Content: formatFinancials([]stock.Financial{f})})
 	}
+	seenNews := map[string]bool{}
+	for _, n := range news {
+		key := n.URL
+		if key == "" {
+			key = evidenceDigest(n.Title + n.Content)
+		}
+		if seenNews[key] {
+			continue
+		}
+		seenNews[key] = true
+		fingerprint := n.Content
+		if strings.TrimSpace(fingerprint) == "" {
+			fingerprint = n.Title
+		}
+		ndocs = append(ndocs, evidenceDocument{ContentFingerprint: evidenceDigest(strings.Join(strings.Fields(fingerprint), " ")), Source: n.Source, URL: n.URL, PublishedAt: n.PublishedAt.Format(time.RFC3339), AvailableOn: n.PublishedAt.Format(time.RFC3339), Content: n.Title + "\n" + n.Content})
+	}
+	for _, post := range posts {
+		pdocs = append(pdocs, evidenceDocument{Source: post.Platform, PublishedAt: post.PublishedAt.Format(time.RFC3339), AvailableOn: post.PublishedAt.Format(time.RFC3339), Content: formatSocial([]stock.SocialPost{post})})
+	}
+	out := []frozenTool{create(vo.ToolGetFinancials, fdocs), create(vo.ToolGetNews, ndocs), create(vo.ToolGetSocialSentiment, pdocs)}
 	contexts := append([]stock.MarketContext(nil), s.Market.Contexts...)
 	sort.Slice(contexts, func(i, j int) bool {
 		a, c := contexts[i], contexts[j]
@@ -83,19 +117,20 @@ func additionalAnalystTools(turn entities.Turn) []frozenTool {
 		return a.Reference+a.Source+a.Data < c.Reference+c.Source+c.Data
 	})
 	for _, scope := range []string{"sector", "index"} {
-		var data strings.Builder
+		var docs []evidenceDocument
 		seen := map[string]bool{}
 		for _, c := range contexts {
-			if c.Scope == scope && c.VisibleTo(s.Code, s.TradeDate) && !seen[c.Reference] {
-				fmt.Fprintf(&data, "参考对象:%s 来源:%s 数据日期:%s 可获得日期:%s\n%s\n", c.Reference, c.Source, c.AsOf.String(), c.AvailableOn.String(), c.Data)
-				seen[c.Reference] = true
+			key := c.Reference + "\x00" + c.Source
+			if c.Scope == scope && c.VisibleTo(s.Code, s.TradeDate) && !seen[key] {
+				seen[key] = true
+				docs = append(docs, evidenceDocument{Source: c.Source, AvailableOn: c.AvailableOn.String(), Content: fmt.Sprintf("参考对象:%s 数据日期:%s\n%s", c.Reference, c.AsOf.String(), c.Data)})
 			}
 		}
 		name := vo.ToolGetSectorContext
 		if scope == "index" {
 			name = vo.ToolGetIndexContext
 		}
-		out = append(out, create(name, scope+"专用背景", data.String(), data.Len() == 0))
+		out = append(out, create(name, docs))
 	}
 	return out
 }

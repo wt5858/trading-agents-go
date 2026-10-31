@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wt5858/trading-agents-go/pkg/idx"
+
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/domain_events"
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/value_objects"
 	analysis_vo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
@@ -28,15 +30,17 @@ import (
 // Indicators 是从 IndicatorRepository **读回来**的，不是在这里算的。
 // 这条规则的理由写在 value_objects/indicators.go 的注释里。
 type MarketBrief struct {
-	Contexts   []stock_vo.MarketContext
-	Name       string
-	Industry   string
-	Quote      stock_vo.Quote
-	Klines     []stock_vo.Kline
-	Indicators value_objects.Indicators
-	Financials []stock_vo.Financial
-	News       []stock_vo.News
-	Social     []stock_vo.SocialPost
+	DataPreparations   []stock_vo.DataPreparation
+	QuoteMissingReason string
+	Contexts           []stock_vo.MarketContext
+	Name               string
+	Industry           string
+	Quote              stock_vo.Quote
+	Klines             []stock_vo.Kline
+	Indicators         value_objects.Indicators
+	Financials         []stock_vo.Financial
+	News               []stock_vo.News
+	Social             []stock_vo.SocialPost
 	// Missing 记录哪些素材没取到，提示词会如实告诉模型「这块没有数据」，
 	// 而不是给它一个空数组让它自行脑补。
 	Missing []string
@@ -63,9 +67,11 @@ func (b MarketBrief) HasIndicators() bool { return !b.Indicators.IsZero() }
 // 而另一位分析师可能正在写 Reports——那是一个必现但极难复现的 map 并发读写崩溃。
 // 快照在锁内一次性复制完成，之后随便怎么读都安全。
 type ContextSnapshot struct {
-	Code      shared_vo.StockCode
-	TradeDate shared_vo.TradeDate
-	Depth     analysis_vo.Depth
+	AnalystReports     map[value_objects.AgentKind]value_objects.AnalystReport
+	StructuredAnalysts bool
+	Code               shared_vo.StockCode
+	TradeDate          shared_vo.TradeDate
+	Depth              analysis_vo.Depth
 	// Model 是本次分析指定的模型，空串表示走路由的默认模型。
 	// 它随快照下发而不是由 Runtime 自己决定：同一次分析的十四位成员
 	// 必须用同一个模型，否则成本和结论都无从对照。
@@ -103,6 +109,7 @@ func (s ContextSnapshot) HasReport(k value_objects.AgentKind) bool {
 // 嵌入的 EventRecorder 本身不是并发安全的（见 domain_kernel 的说明），
 // 这里的安全性来自「所有 AddDomainEvent 调用都发生在本聚合的写锁内」这条约束。
 type AnalysisContext struct {
+	research *value_objects.ResearchTrace
 	domain_event.EventRecorder
 
 	// runID 是这次运行的身份，取自发起它的分析任务 ID。
@@ -111,17 +118,21 @@ type AnalysisContext struct {
 	// 用任务 ID 当主键让这条查询不需要任何中间映射表，
 	// 也让消息重投递导致的重跑天然覆盖同一份轨迹而不是堆出两份。
 	// 空串表示这次运行没有对应任务（脚本直调），此时轨迹不落库。
-	runID     string
-	code      shared_vo.StockCode
-	tradeDate shared_vo.TradeDate
-	depth     analysis_vo.Depth
-	model     string
-	startedAt time.Time
+	executionID string
+	pending     map[value_objects.AgentKind]value_objects.TurnRecord
+	runID       string
+	code        shared_vo.StockCode
+	tradeDate   shared_vo.TradeDate
+	depth       analysis_vo.Depth
+	model       string
+	startedAt   time.Time
 
-	mu       sync.RWMutex
-	market   MarketBrief
-	reports  map[value_objects.AgentKind]string
-	failures map[value_objects.AgentKind]string
+	analystReports     map[value_objects.AgentKind]value_objects.AnalystReport
+	structuredAnalysts bool
+	mu                 sync.RWMutex
+	market             MarketBrief
+	reports            map[value_objects.AgentKind]string
+	failures           map[value_objects.AgentKind]string
 	// turns 是按提交时刻排列的发言轨迹，只追加不修改。
 	turns []value_objects.TurnRecord
 	// seq 是发言序号的分配器，与 turns 同在写锁下，因此不会重号。
@@ -134,15 +145,16 @@ type AnalysisContext struct {
 // runID 传发起本次运行的任务 ID，没有对应任务时传空串。
 func NewAnalysisContext(runID string, req analysis_vo.Request) *AnalysisContext {
 	return &AnalysisContext{
-		runID:     runID,
-		code:      req.Code,
-		tradeDate: req.TradeDate,
-		depth:     req.Depth,
-		model:     req.LLMModel,
-		startedAt: time.Now(),
-		reports:   make(map[value_objects.AgentKind]string, len(value_objects.AllKinds())),
-		failures:  make(map[value_objects.AgentKind]string, 4),
-		turns:     make([]value_objects.TurnRecord, 0, len(value_objects.AllKinds())),
+		runID: runID, executionID: idx.NewSortable(), pending: make(map[value_objects.AgentKind]value_objects.TurnRecord),
+		code:           req.Code,
+		tradeDate:      req.TradeDate,
+		depth:          req.Depth,
+		model:          req.LLMModel,
+		startedAt:      time.Now(),
+		reports:        make(map[value_objects.AgentKind]string, len(value_objects.AllKinds())),
+		analystReports: make(map[value_objects.AgentKind]value_objects.AnalystReport),
+		failures:       make(map[value_objects.AgentKind]string, 4),
+		turns:          make([]value_objects.TurnRecord, 0, len(value_objects.AllKinds())),
 	}
 }
 
@@ -159,7 +171,7 @@ func (c *AnalysisContext) StartedAt() time.Time           { return c.startedAt }
 func (c *AnalysisContext) LoadMarketBrief(b MarketBrief) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.market = b
+	c.market = b.Clone()
 }
 
 // CommitTurn 收下一位成员的一次发言：记轨迹、记账、写报告或记失败、发事件。
@@ -180,7 +192,7 @@ func (c *AnalysisContext) LoadMarketBrief(b MarketBrief) {
 //     把空串记成「有报告」会让下游智能体以为上游给过结论；
 //   - 失败同样计消耗：撞上下文长度上限的那次调用是真花了钱的，
 //     不记账会让成本统计长期偏低。
-func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
+func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -189,8 +201,34 @@ func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 	if rec.Phase == "" {
 		rec.Phase = rec.Kind.Phase()
 	}
+	delete(c.pending, rec.Kind)
 	c.seq++
 	rec.Seq = c.seq
+	rec.ExecutionID = c.executionID
+	if rec.Skipped {
+		rec.Failed = false
+		rec.FailReason = ""
+		rec.Content = ""
+		rec.AnalystReport = nil
+		rec.ModelCalls = append([]value_objects.ModelCallRecord(nil), rec.ModelCalls...)
+		rec.ToolCalls = append([]value_objects.ToolCallRecord(nil), rec.ToolCalls...)
+		c.usage = c.usage.Plus(rec.Usage)
+		delete(c.reports, rec.Kind)
+		delete(c.analystReports, rec.Kind)
+		delete(c.failures, rec.Kind)
+		c.turns = append(c.turns, rec)
+		return rec.Seq
+	}
+	if rec.Kind.IsAnalyst() && (rec.AnalystReport != nil || rec.AgentArtifact != "") {
+		c.structuredAnalysts = true
+	}
+	if rec.AnalystReport != nil {
+		report := rec.AnalystReport.Clone()
+		rec.AnalystReport = &report
+		if !rec.Failed {
+			c.analystReports[rec.Kind] = report.Clone()
+		}
+	}
 	rec.ModelCalls = append([]value_objects.ModelCallRecord(nil), rec.ModelCalls...)
 	rec.ToolCalls = append([]value_objects.ToolCallRecord(nil), rec.ToolCalls...)
 	c.turns = append(c.turns, rec)
@@ -198,10 +236,12 @@ func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 	c.usage = c.usage.Plus(rec.Usage)
 
 	if rec.Failed {
+		delete(c.analystReports, rec.Kind)
+		delete(c.reports, rec.Kind)
 		c.failures[rec.Kind] = rec.FailReason
 		c.AddDomainEvent(domain_events.NewOnAgentFailed(
 			c.code.FullSymbol(), c.tradeDate.String(), rec.Kind.String(), rec.FailReason))
-		return
+		return rec.Seq
 	}
 
 	if rec.Content != "" {
@@ -213,6 +253,7 @@ func (c *AnalysisContext) CommitTurn(rec value_objects.TurnRecord) {
 	c.AddDomainEvent(domain_events.NewOnAgentCompleted(
 		c.code.FullSymbol(), c.tradeDate.String(), rec.Kind.String(),
 		rec.Usage.TotalTokens, rec.Usage.CostUSD))
+	return rec.Seq
 }
 
 // Turns 返回发言轨迹的副本，按提交顺序排列。
@@ -221,6 +262,10 @@ func (c *AnalysisContext) Turns() []value_objects.TurnRecord {
 	defer c.mu.RUnlock()
 	out := append([]value_objects.TurnRecord(nil), c.turns...)
 	for i := range out {
+		if out[i].AnalystReport != nil {
+			report := out[i].AnalystReport.Clone()
+			out[i].AnalystReport = &report
+		}
 		out[i].ModelCalls = append([]value_objects.ModelCallRecord(nil), out[i].ModelCalls...)
 		out[i].ToolCalls = append([]value_objects.ToolCallRecord(nil), out[i].ToolCalls...)
 	}
@@ -253,12 +298,17 @@ func (c *AnalysisContext) Snapshot() ContextSnapshot {
 	for k, v := range c.failures {
 		failures[k] = v
 	}
+	typed := make(map[value_objects.AgentKind]value_objects.AnalystReport, len(c.analystReports))
+	for k, v := range c.analystReports {
+		typed[k] = v.Clone()
+	}
 	return ContextSnapshot{
+		AnalystReports: typed, StructuredAnalysts: c.structuredAnalysts,
 		Code:      c.code,
 		TradeDate: c.tradeDate,
 		Depth:     c.depth,
 		Model:     c.model,
-		Market:    c.market,
+		Market:    c.market.Clone(),
 		Reports:   reports,
 		Failures:  failures,
 		Decision:  c.decision,
@@ -293,7 +343,7 @@ func (c *AnalysisContext) FailedKinds() []value_objects.AgentKind {
 func (c *AnalysisContext) Usage() value_objects.Usage {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.usage
+	return c.usageLocked()
 }
 
 func (c *AnalysisContext) Decision() analysis_vo.Decision {
@@ -324,6 +374,12 @@ func (c *AnalysisContext) FinalDecision() value_objects.SettledDecision {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	return c.finalDecisionLocked()
+}
+func (c *AnalysisContext) finalDecisionLocked() value_objects.SettledDecision {
+	if c.structuredAnalysts && !decisionReady(c.analystReports) {
+		return value_objects.SettledDecision{Decision: analysis_vo.Decision{Action: analysis_vo.ActionUndecided, Reasoning: "分析证据未达到决策要求，未生成交易结论"}}
+	}
 	if c.decision.Action.Valid() && c.decision.Action != analysis_vo.ActionUndecided {
 		return value_objects.SettledDecision{
 			Decision:  c.decision,
@@ -370,4 +426,77 @@ func (c *AnalysisContext) DrainEvents() []domain_event.DomainEvent {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.GetAllPendingEvents()
+}
+
+// Decision readiness is independent of successful execution. Partial and insufficient
+// reports remain available to users but cannot unlock a trade by themselves.
+func decisionReady(reports map[value_objects.AgentKind]value_objects.AnalystReport) bool {
+	for kind, r := range reports {
+		if kind.IsAnalyst() && r.DecisionEligible() {
+			return true
+		}
+	}
+	return false
+}
+func (s ContextSnapshot) DecisionReady() bool {
+	return !s.StructuredAnalysts || decisionReady(s.AnalystReports)
+}
+
+func (c *AnalysisContext) ExecutionID() string { return c.executionID }
+func (c *AnalysisContext) usageLocked() value_objects.Usage {
+	u := c.usage
+	for _, r := range c.pending {
+		u = u.Plus(r.Usage)
+	}
+	return u
+}
+func (c *AnalysisContext) RecordPending(kind value_objects.AgentKind, result TurnResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	record := value_objects.TurnRecord{Kind: kind, Phase: kind.Phase(), Usage: result.Usage, ModelCalls: append([]value_objects.ModelCallRecord(nil), result.ModelCalls...), ToolCalls: append([]value_objects.ToolCallRecord(nil), result.ToolCalls...), Model: result.Model, StartedAt: time.Now()}
+	if old, ok := c.pending[kind]; ok {
+		record.StartedAt = old.StartedAt
+	}
+	record.Duration = time.Since(record.StartedAt)
+	c.pending[kind] = record
+}
+func (c *AnalysisContext) TraceSnapshot(finished time.Time, reason string) value_objects.RunTrace {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	turns := cloneRecords(c.turns)
+	var pending []value_objects.TurnRecord
+	for _, k := range value_objects.AllKinds() {
+		if r, ok := c.pending[k]; ok {
+			pending = append(pending, cloneRecords([]value_objects.TurnRecord{r})[0])
+		}
+	}
+	var research *value_objects.ResearchTrace
+	if c.research != nil {
+		copy := c.research.Clone()
+		research = &copy
+	}
+	return value_objects.RunTrace{DataPreparations: append([]stock_vo.DataPreparation(nil), c.market.DataPreparations...), Research: research, RunID: c.runID, ExecutionID: c.executionID, Code: c.code, TradeDate: c.tradeDate, Depth: c.depth, RequestedModel: c.model, StartedAt: c.startedAt, FinishedAt: finished, Duration: finished.Sub(c.startedAt), Turns: turns, PendingTurns: pending, Usage: c.usageLocked(), Decision: c.finalDecisionLocked(), Failed: reason != "", FailReason: reason}
+}
+
+func cloneRecords(in []value_objects.TurnRecord) []value_objects.TurnRecord {
+	out := append([]value_objects.TurnRecord(nil), in...)
+	for i, r := range out {
+		out[i].ModelCalls = append([]value_objects.ModelCallRecord(nil), r.ModelCalls...)
+		out[i].ToolCalls = append([]value_objects.ToolCallRecord(nil), r.ToolCalls...)
+		if r.AnalystReport != nil {
+			copy := r.AnalystReport.Clone()
+			out[i].AnalystReport = &copy
+		}
+	}
+	return out
+}
+func (b MarketBrief) Clone() MarketBrief {
+	b.DataPreparations = append([]stock_vo.DataPreparation(nil), b.DataPreparations...)
+	b.Klines = append([]stock_vo.Kline(nil), b.Klines...)
+	b.Financials = append([]stock_vo.Financial(nil), b.Financials...)
+	b.News = append([]stock_vo.News(nil), b.News...)
+	b.Social = append([]stock_vo.SocialPost(nil), b.Social...)
+	b.Contexts = append([]stock_vo.MarketContext(nil), b.Contexts...)
+	b.Missing = append([]string(nil), b.Missing...)
+	return b
 }

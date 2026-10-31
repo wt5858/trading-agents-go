@@ -420,7 +420,7 @@ func (p *EastmoneyProvider) FetchQuote(ctx context.Context, code shared_vo.Stock
 		return nil, custom_errors.NotFound("eastmoney 无 %s 的近期行情", code.FullSymbol())
 	}
 	last := klines[len(klines)-1]
-	preClose := last.Open
+	preClose := decimal.Zero
 	if len(klines) >= 2 {
 		preClose = klines[len(klines)-2].Close
 	}

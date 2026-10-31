@@ -44,7 +44,7 @@ func TestAllAnalystsUseAuthorizedPrimaryEvidence(t *testing.T) {
 			if !found {
 				t.Fatal("fixture missing primary evidence")
 			}
-			report, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Claim: "固定样本引用", EvidenceIDs: []string{evidence.evidence.ID}}}})
+			report, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Kind: "inference", Claim: "固定样本引用", EvidenceIDs: []string{evidence.evidence.ID}, EvidenceQuotes: map[string]string{evidence.evidence.ID: evidence.evidence.Data}}}})
 			client := &scriptedClient{replies: []vo.CompletionResult{{ToolCalls: []vo.ToolCall{{ID: "p", Name: evidence.spec.Name}}}, {Content: string(report)}}}
 			rt := NewRuntimeService(fixedRouter{client}, nil, nil, nil, RuntimeConfig{AnalystAgentsEnabled: true}, nil)
 			result, err := rt.Execute(context.Background(), turn)
@@ -64,12 +64,12 @@ func TestQuoteCannotReplaceSectorEvidence(t *testing.T) {
 			quote = tool
 		}
 	}
-	output, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "bullish", Findings: []vo.AnalystFinding{{Claim: "个股上涨所以整个行业上涨", EvidenceIDs: []string{quote.evidence.ID}}}})
+	output, _ := json.Marshal(vo.AnalystReport{Status: "complete", Direction: "bullish", Findings: []vo.AnalystFinding{{Kind: "inference", Claim: "个股上涨所以整个行业上涨", EvidenceIDs: []string{quote.evidence.ID}, EvidenceQuotes: map[string]string{quote.evidence.ID: quote.evidence.Data}}}})
 	client := &scriptedClient{replies: []vo.CompletionResult{{ToolCalls: []vo.ToolCall{{ID: "q", Name: vo.ToolGetQuote}}}, {Content: string(output)}}}
 	rt := NewRuntimeService(fixedRouter{client}, nil, nil, nil, RuntimeConfig{AnalystAgentsEnabled: true}, nil)
 	result, err := rt.Execute(context.Background(), turn)
-	if err == nil || result.Content != "" {
-		t.Fatal("sector claim accepted without sector evidence")
+	if err != nil || result.AnalystReport == nil || result.AnalystReport.Status != "insufficient" || len(result.AnalystReport.Findings) != 0 || client.rounds() != 0 {
+		t.Fatal("missing sector evidence must abstain before asking model to invent a report")
 	}
 }
 func TestFrozenDataUsesAvailabilityAndNormalizedIdentity(t *testing.T) {

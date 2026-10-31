@@ -65,7 +65,11 @@ func (c *Composite) FetchStockList(ctx context.Context, market shared_vo.Market)
 
 func (c *Composite) FetchQuote(ctx context.Context, code shared_vo.StockCode) (*value_objects.Quote, error) {
 	return firstSuccess(ctx, c, code.Market, "FetchQuote", func(p domain_services.DataProvider) (*value_objects.Quote, error) {
-		return p.FetchQuote(ctx, code)
+		q, err := p.FetchQuote(ctx, code)
+		if err == nil && q == nil {
+			err = custom_errors.NotFound("数据源返回空行情")
+		}
+		return q, err
 	})
 }
 
@@ -92,13 +96,21 @@ func (c *Composite) FetchKlinesByDate(
 
 func (c *Composite) FetchFinancials(ctx context.Context, code shared_vo.StockCode, limit int) ([]value_objects.Financial, error) {
 	return firstSuccess(ctx, c, code.Market, "FetchFinancials", func(p domain_services.DataProvider) ([]value_objects.Financial, error) {
-		return p.FetchFinancials(ctx, code, limit)
+		items, err := p.FetchFinancials(ctx, code, limit)
+		if err == nil && len(items) == 0 {
+			err = custom_errors.NotFound("数据源返回空财务数据")
+		}
+		return items, err
 	})
 }
 
 func (c *Composite) FetchNews(ctx context.Context, code shared_vo.StockCode, r shared_vo.DateRange, limit int) ([]value_objects.News, error) {
 	return firstSuccess(ctx, c, code.Market, "FetchNews", func(p domain_services.DataProvider) ([]value_objects.News, error) {
-		return p.FetchNews(ctx, code, r, limit)
+		items, err := p.FetchNews(ctx, code, r, limit)
+		if err == nil && len(items) == 0 {
+			err = custom_errors.NotFound("数据源返回空新闻")
+		}
+		return items, err
 	})
 }
 
@@ -120,10 +132,11 @@ func firstSuccess[T any](
 	}
 
 	var (
-		errs        []error
-		tried       []string
-		unsupported int
-		skipped     = true
+		errs            []error
+		tried           []string
+		unsupported     int
+		dataUnsupported int
+		skipped         = true
 	)
 	for _, p := range c.providers {
 		// 每轮都检查取消：前一个源超时后，没必要再把剩下的源挨个跑一遍。
@@ -148,6 +161,10 @@ func firstSuccess[T any](
 			unsupported++
 			continue
 		}
+		if errors.Is(err, domain_services.ErrDataUnsupported) {
+			dataUnsupported++
+			continue
+		}
 		tried = append(tried, p.Name())
 		// 把源名带进错误里，聚合后才能看出是哪一环挂的。
 		errs = append(errs, &providerError{provider: p.Name(), op: op, err: err})
@@ -165,6 +182,9 @@ func firstSuccess[T any](
 		return zero, custom_errors.Unavailable(
 			"没有数据源提供 %s 的批量端点（市场 %s）", op, market,
 		).Wrap(domain_services.ErrBatchUnsupported)
+	}
+	if len(errs) == 0 && dataUnsupported > 0 {
+		return zero, custom_errors.Unavailable("配置的数据源不提供 %s 接口（市场 %s）", op, market).Wrap(domain_services.ErrDataUnsupported)
 	}
 	// errors.Join 保留每个子错误，上层仍可用 errors.Is/As 判断具体类型
 	// （例如判断是否全部是 QuotaExceeded 以决定要不要重试）。

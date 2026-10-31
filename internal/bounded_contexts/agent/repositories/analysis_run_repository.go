@@ -69,6 +69,8 @@ func (repo *AnalysisRunRepository) EnsureIndexes(ctx context.Context) error {
 		return nil
 	}
 	models := []mongo.IndexModel{
+		{Keys: bson.D{{Key: "trade_date", Value: 1}, {Key: "started_at", Value: -1}, {Key: "_id", Value: -1}}, Options: options.Index().SetName("idx_run_date_started")},
+		{Keys: bson.D{{Key: "logical_run_id", Value: 1}, {Key: "started_at", Value: -1}}, Options: options.Index().SetName("idx_run_attempts")},
 		{
 			Keys: bson.D{
 				{Key: "symbol", Value: 1},
@@ -90,16 +92,8 @@ func (repo *AnalysisRunRepository) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
-// Save 落库一次运行的完整轨迹。
-//
-// 整个聚合一次性交出去，调用方不碰单条发言：turns 是根的一部分，
-// 没有任何独立于这次运行的写入路径。
-//
-// 按 _id 覆盖写而不是插入：任务派发是至少一次投递，同一个任务重跑时
-// 应该得到最新一份轨迹，而不是两份无从分辨的记录。覆盖写天然幂等，
-// 重放多少次结果都一样。
-//
-// failReason 为空表示这次运行正常收尾。
+// Save atomically persists one whole execution. Retried tasks have distinct IDs;
+// checkpoints replace only the same attempt, never another attempt's cost history.
 func (repo *AnalysisRunRepository) Save(
 	ctx context.Context,
 	ac *entities.AnalysisContext,
@@ -115,13 +109,18 @@ func (repo *AnalysisRunRepository) Save(
 		return nil
 	}
 
-	dto := dtos.FromDomainAnalysisRun(ac, finishedAt, failReason)
-	_, err := repo.db.Collection(collAnalysisRuns).ReplaceOne(
-		ctx,
-		bson.M{"_id": dto.RunID},
-		dto,
-		options.Replace().SetUpsert(true),
-	)
+	return repo.save(ctx, dtos.FromDomainAnalysisRun(ac, finishedAt, failReason))
+}
+func (repo *AnalysisRunRepository) SaveCheckpoint(ctx context.Context, ac *entities.AnalysisContext) error {
+	if repo.db == nil || ac == nil || ac.RunID() == "" {
+		return nil
+	}
+	dto := dtos.FromDomainAnalysisRun(ac, time.Now(), "")
+	dto.InProgress = true
+	return repo.save(ctx, dto)
+}
+func (repo *AnalysisRunRepository) save(ctx context.Context, dto *dtos.AnalysisRunDto) error {
+	_, err := repo.db.Collection(collAnalysisRuns).ReplaceOne(ctx, bson.M{"_id": dto.RunID}, dto, options.Replace().SetUpsert(true))
 	if err != nil {
 		return custom_errors.Internal("保存分析轨迹失败").Wrap(err)
 	}
@@ -154,20 +153,20 @@ func (repo *AnalysisRunRepository) ListSummaries(
 	}
 
 	filter := bson.M{
+		"research_json": bson.M{"$exists": false},
 		// trade_date 是定长串，字典序等价于时间序，因此区间查询可以直接比字符串。
 		"trade_date": bson.M{"$gte": rng.Start.String(), "$lte": rng.End.String()},
-		// 跑挂的运行没有可评分的结论，在数据库这一侧就滤掉，
-		// 不要读回来再在内存里丢——它们在失败率高的时段能占到样本的一大半。
-		"failed": false,
 	}
-	opts := options.Find().
-		SetProjection(bson.M{"turns": 0}).
-		SetSort(bson.D{{Key: "trade_date", Value: 1}}).
-		// 多取一条：取回来 limit+1 条就说明区间里还有更多，
-		// 这比再发一次 CountDocuments 便宜得多。
-		SetLimit(int64(limit) + 1)
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$project", Value: bson.M{"_id": 1, "logical_run_id": 1, "symbol": 1, "market": 1, "raw_code": 1, "trade_date": 1, "decision": 1, "failed": 1, "in_progress": 1, "started_at": 1}}},
+		{{Key: "$sort", Value: bson.D{{Key: "trade_date", Value: 1}, {Key: "started_at", Value: -1}, {Key: "_id", Value: -1}}}},
+		{{Key: "$group", Value: bson.M{"_id": bson.M{"$ifNull": bson.A{"$logical_run_id", "$_id"}}, "latest": bson.M{"$first": "$$ROOT"}}}},
+		{{Key: "$replaceRoot", Value: bson.M{"newRoot": "$latest"}}}, {{Key: "$match", Value: bson.M{"failed": false, "in_progress": bson.M{"$ne": true}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "trade_date", Value: 1}, {Key: "_id", Value: 1}}}}, {{Key: "$limit", Value: int64(limit) + 1}}, {{Key: "$project", Value: bson.M{"turns": 0, "pending_turns": 0}}},
+	}
+	cursor, err := repo.db.Collection(collAnalysisRuns).Aggregate(ctx, pipeline, options.Aggregate().SetAllowDiskUse(true))
 
-	cursor, err := repo.db.Collection(collAnalysisRuns).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, false, custom_errors.Internal("查询分析轨迹失败").Wrap(err)
 	}
@@ -200,21 +199,26 @@ func (repo *AnalysisRunRepository) ExistingRunIDs(ctx context.Context, ids []str
 		return out, nil
 	}
 	cursor, err := repo.db.Collection(collAnalysisRuns).Find(ctx,
-		bson.M{"_id": bson.M{"$in": ids}, "failed": false},
-		options.Find().SetProjection(bson.M{"_id": 1}))
+		bson.M{"$or": bson.A{bson.M{"_id": bson.M{"$in": ids}}, bson.M{"logical_run_id": bson.M{"$in": ids}}}, "failed": false, "in_progress": bson.M{"$ne": true}},
+		options.Find().SetProjection(bson.M{"_id": 1, "logical_run_id": 1}))
 	if err != nil {
 		return nil, custom_errors.Internal("查询已有分析轨迹失败").Wrap(err)
 	}
 	defer func() { _ = cursor.Close(ctx) }()
 
 	var rows []struct {
-		ID string `bson:"_id"`
+		ID           string `bson:"_id"`
+		LogicalRunID string `bson:"logical_run_id"`
 	}
 	if err := cursor.All(ctx, &rows); err != nil {
 		return nil, custom_errors.Internal("解析已有分析轨迹失败").Wrap(err)
 	}
 	for _, r := range rows {
-		out[r.ID] = struct{}{}
+		if r.LogicalRunID != "" {
+			out[r.LogicalRunID] = struct{}{}
+		} else {
+			out[r.ID] = struct{}{}
+		}
 	}
 	return out, nil
 }
@@ -241,7 +245,7 @@ func (repo *AnalysisRunRepository) RunCostStatsOf(ctx context.Context, depth int
 		return RunCostStats{}, custom_errors.Unavailable("未启用 MongoDB，分析轨迹不可用")
 	}
 	pipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{"depth": depth}}},
+		bson.D{{Key: "$match", Value: bson.M{"depth": depth, "research_json": bson.M{"$exists": false}}}},
 		bson.D{{Key: "$group", Value: bson.M{
 			"_id": nil,
 			"n":   bson.M{"$sum": 1},
@@ -280,7 +284,7 @@ func (repo *AnalysisRunRepository) FindByRunID(ctx context.Context, runID string
 
 	var dto dtos.AnalysisRunDto
 	err := repo.db.Collection(collAnalysisRuns).
-		FindOne(ctx, bson.M{"_id": runID}).
+		FindOne(ctx, bson.M{"$or": bson.A{bson.M{"_id": runID}, bson.M{"logical_run_id": runID}}}, options.FindOne().SetSort(bson.D{{Key: "started_at", Value: -1}, {Key: "_id", Value: -1}})).
 		Decode(&dto)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -289,4 +293,24 @@ func (repo *AnalysisRunRepository) FindByRunID(ctx context.Context, runID string
 		return value_objects.RunTrace{}, custom_errors.Internal("读取分析轨迹失败").Wrap(err)
 	}
 	return dto.ToDomain(), nil
+}
+
+func (repo *AnalysisRunRepository) ListAttempts(ctx context.Context, runID string) ([]value_objects.RunTrace, error) {
+	if repo.db == nil {
+		return nil, custom_errors.Unavailable("未启用MongoDB")
+	}
+	cur, err := repo.db.Collection(collAnalysisRuns).Find(ctx, bson.M{"$or": bson.A{bson.M{"_id": runID}, bson.M{"logical_run_id": runID}}}, options.Find().SetSort(bson.D{{Key: "started_at", Value: -1}}).SetLimit(100))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var rows []dtos.AnalysisRunDto
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]value_objects.RunTrace, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToDomain())
+	}
+	return out, nil
 }

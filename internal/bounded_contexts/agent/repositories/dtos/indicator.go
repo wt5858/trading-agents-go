@@ -17,25 +17,29 @@ import (
 	shared_vo "github.com/wt5858/trading-agents-go/internal/domain_kernel/value_objects"
 )
 
-// codeColumns 是 StockCode 在 Mongo 文档里的扁平形态。
+// CodeColumns 是 StockCode 在 Mongo 文档里的扁平形态。
 //
 // 为什么不给 shared_vo.StockCode 直接打 bson 标签：它是嵌套结构，落成子文档后
 // symbol 会变成 code.symbol，自然键索引直接失效；而 shared_vo.TradeDate 的
 // 内部字段不导出，bson 编解码器看不见它，序列化出来是一个空对象 {}。
 // 字段名与 stock 上下文的 market_data 集合逐字一致，跨集合聚合才拼得起来。
-type codeColumns struct {
+type CodeColumns struct {
 	Symbol string `bson:"symbol"`
 	Market string `bson:"market"`
 	Raw    string `bson:"raw_code,omitempty"`
 }
 
-func codeColumnsOf(c shared_vo.StockCode) codeColumns {
-	return codeColumns{Symbol: c.Symbol, Market: string(c.Market), Raw: c.Raw}
+func codeColumnsOf(c shared_vo.StockCode) CodeColumns {
+	return CodeColumns{Symbol: c.Symbol, Market: string(c.Market), Raw: c.Raw}
 }
 
 // toDomain 直接拼装而不走 NewStockCode：库里的行是既成事实，
 // 读路径再跑一次写入期的校验，只会让历史脏数据把查询打挂。
-func (c codeColumns) toDomain() shared_vo.StockCode {
+func (c CodeColumns) toDomain() shared_vo.StockCode {
+	if code, err := shared_vo.NewStockCode(c.Symbol, shared_vo.Market(c.Market)); err == nil {
+		code.Raw = c.Raw
+		return code
+	}
 	return shared_vo.StockCode{Symbol: c.Symbol, Market: shared_vo.Market(c.Market), Raw: c.Raw}
 }
 
@@ -132,7 +136,7 @@ func (c indicatorColumns) toDomain() value_objects.Indicators {
 // 自然键 = (symbol, period, trade_date)，与 stock 上下文的 klines 集合同构——
 // 指标是从 K 线推导出来的，键不同构就没法把两者对起来查。
 type IndicatorSnapshotDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	Period      string `bson:"period"`
 	// TradeDate 存 YYYY-MM-DD 定长串而不是 BSON date：
 	// 定长串的字典序等价于时间序，区间查询可以直接 $lte，且省掉时区换算。
@@ -155,7 +159,7 @@ func (dto IndicatorSnapshotDto) ToDomain() *entities.IndicatorSnapshot {
 
 func FromDomainIndicatorSnapshot(s *entities.IndicatorSnapshot) *IndicatorSnapshotDto {
 	return &IndicatorSnapshotDto{
-		codeColumns: codeColumnsOf(s.Code),
+		CodeColumns: codeColumnsOf(s.Code),
 		Period:      s.Period.String(),
 		TradeDate:   s.TradeDate.String(),
 		Indicators:  indicatorColumnsOf(s.Indicators),

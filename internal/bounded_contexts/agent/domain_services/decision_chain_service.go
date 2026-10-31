@@ -3,6 +3,8 @@ package domain_services
 import (
 	"context"
 
+	stockvo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/value_objects"
+
 	"github.com/shopspring/decimal"
 
 	"github.com/wt5858/trading-agents-go/internal/bounded_contexts/agent/repositories"
@@ -50,7 +52,15 @@ func (s *DecisionChainService) DecisionChain(ctx context.Context, runID string) 
 		links = append(links, toChainLink(t))
 	}
 
+	for _, t := range trace.PendingTurns {
+		link := toChainLink(t)
+		link.Seq = len(links) + 1
+		link.Pending = true
+		links = append(links, link)
+	}
 	chain := analysis_vo.DecisionChain{
+		DataPreparations: toDataPreparations(trace.DataPreparations),
+		ExecutionID:      trace.ExecutionID, InProgress: trace.InProgress,
 		TaskID:    trace.RunID,
 		Symbol:    trace.Code.FullSymbol(),
 		TradeDate: trace.TradeDate.String(),
@@ -70,8 +80,25 @@ func (s *DecisionChainService) DecisionChain(ctx context.Context, runID string) 
 	return &chain, nil
 }
 
+func toDataPreparations(in []stockvo.DataPreparation) []analysis_vo.DataPreparation {
+	var out []analysis_vo.DataPreparation
+	for _, p := range in {
+		out = append(out, analysis_vo.DataPreparation{Kind: string(p.Kind), Provider: p.Provider, Status: p.Status, Message: p.Message, Count: p.Count, Rejected: p.Rejected, Saved: p.Saved, DurationMS: p.DurationMS})
+	}
+	return out
+}
+
 func toChainLink(t value_objects.TurnRecord) analysis_vo.ChainLink {
+	status := ""
+	verified := false
+	if t.AnalystReport != nil {
+		status = t.AnalystReport.Status
+		verified = t.AnalystReport.SupportVerified
+	}
 	return analysis_vo.ChainLink{
+		Skipped: t.Skipped, SkipReason: t.SkipReason,
+		Purpose:       t.Purpose,
+		AnalystStatus: status, EvidenceVerified: verified,
 		Seq:           t.Seq,
 		ModelCalls:    toChainModelCalls(t.ModelCalls),
 		AgentArtifact: t.AgentArtifact,
@@ -110,6 +137,7 @@ func toChainToolCalls(in []value_objects.ToolCallRecord) []analysis_vo.ChainTool
 	out := make([]analysis_vo.ChainToolCall, 0, len(in))
 	for _, r := range in {
 		out = append(out, analysis_vo.ChainToolCall{
+			Reused:      r.Reused,
 			Round:       r.Round,
 			Name:        r.Name.String(),
 			OK:          r.OK,
@@ -175,7 +203,7 @@ func msToSeconds(ms int64) decimal.Decimal {
 func toChainModelCalls(in []value_objects.ModelCallRecord) []analysis_vo.ChainModelCall {
 	var out []analysis_vo.ChainModelCall
 	for _, r := range in {
-		out = append(out, analysis_vo.ChainModelCall{ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, DurationMS: r.Duration.Milliseconds(), PromptTokens: r.Usage.PromptTokens, CompletionTokens: r.Usage.CompletionTokens, TotalTokens: r.Usage.TotalTokens, CostUSD: r.Usage.CostUSD, PricingVersion: r.Usage.PricingVersion, CostStatus: r.Usage.CostStatus, FinishReason: r.FinishReason, Failed: r.Failed})
+		out = append(out, analysis_vo.ChainModelCall{Pending: r.Pending, ReservedCostUSD: r.ReservedCostUSD, Round: r.Round, Model: r.Model, Provider: r.Provider, DurationMS: r.Duration.Milliseconds(), PromptTokens: r.Usage.PromptTokens, CompletionTokens: r.Usage.CompletionTokens, TotalTokens: r.Usage.TotalTokens, CostUSD: r.Usage.CostUSD, PricingVersion: r.Usage.PricingVersion, CostStatus: r.Usage.CostStatus, FinishReason: r.FinishReason, Failed: r.Failed})
 	}
 	return out
 }

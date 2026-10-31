@@ -108,10 +108,12 @@ func (d Decision) Normalized() Decision {
 
 // PhaseOutcome 记录每个阶段的执行情况，便于回溯与计费归因。
 type PhaseOutcome struct {
-	Phase     string          `json:"phase"`
-	Agents    []string        `json:"agents"`
-	DurationS decimal.Decimal `json:"duration_seconds"`
-	Failed    []string        `json:"failed,omitempty"`
+	SkippedAgents []string        `json:"skippedAgents,omitempty"`
+	Skipped       bool            `json:"skipped,omitempty"`
+	Phase         string          `json:"phase"`
+	Agents        []string        `json:"agents"`
+	DurationS     decimal.Decimal `json:"duration_seconds"`
+	Failed        []string        `json:"failed,omitempty"`
 }
 
 // TokenUsage 汇总一次分析的 LLM 消耗。

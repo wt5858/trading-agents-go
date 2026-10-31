@@ -26,3 +26,27 @@ func TestLegacyTurnWithoutModelCalls(t *testing.T) {
 		t.Fatalf("legacy trace broken: %+v", got)
 	}
 }
+
+func TestReusedFrozenToolResultSurvivesTraceRoundTrip(t *testing.T) {
+	original := vo.TurnRecord{Kind: vo.KindMarketAnalyst, ToolCalls: []vo.ToolCallRecord{{Name: vo.ToolGetQuote, OK: true, Reused: true, ResultChars: 12}}}
+	got := turnColumnsOf(original).toDomain()
+	if len(got.ToolCalls) != 1 || !got.ToolCalls[0].Reused || !got.ToolCalls[0].OK || got.ToolCalls[0].ResultChars != 12 {
+		t.Fatalf("lost reused tool trace: %+v", got.ToolCalls)
+	}
+	legacy := turnColumns{Kind: "market", ToolCalls: []toolCallColumns{{Name: "get_quote", OK: true}}}.toDomain()
+	if legacy.ToolCalls[0].Reused {
+		t.Fatal("legacy execution incorrectly marked as reuse")
+	}
+}
+
+func TestSkippedSentimentTraceRemainsDistinctFromFailureAndReport(t *testing.T) {
+	original := vo.TurnRecord{Kind: vo.KindSentimentAnalyst, Skipped: true, SkipReason: "没有社交样本"}
+	got := turnColumnsOf(original).toDomain()
+	if !got.Skipped || got.SkipReason != original.SkipReason || got.Failed || got.Content != "" || got.AnalystReport != nil {
+		t.Fatalf("skip became report or failure: %+v", got)
+	}
+	legacy := (turnColumns{Kind: "sentiment", Content: "older report"}).toDomain()
+	if legacy.Skipped {
+		t.Fatal("legacy report incorrectly skipped")
+	}
+}

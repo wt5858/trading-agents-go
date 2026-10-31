@@ -240,14 +240,26 @@ func formatQuote(q stock_vo.Quote) string {
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "交易日: %s\n", q.TradeDate.String())
+	preClose := q.PreClose.StringFixed(3)
+	if q.PreClose.IsZero() {
+		preClose = "暂无"
+	}
 	fmt.Fprintf(&sb, "收盘: %s  开盘: %s  最高: %s  最低: %s  昨收: %s\n",
 		q.Close.StringFixed(3), q.Open.StringFixed(3), q.High.StringFixed(3),
-		q.Low.StringFixed(3), q.PreClose.StringFixed(3))
+		q.Low.StringFixed(3), preClose)
 	// 涨跌额与涨跌幅读的是数据源落库的值，不用 Close-PreClose 现推：
 	// 除权日、停牌复牌等场景下两者并不相等，以数据源口径为准。
-	fmt.Fprintf(&sb, "涨跌: %s (%s%%)\n", signed(q.Change, 3), signed(q.ChangePct, 2))
-	fmt.Fprintf(&sb, "成交量: %s  成交额: %s  换手率: %s%%\n",
-		formatAmount(q.Volume), formatAmount(q.Amount), q.Turnover.StringFixed(2))
+	if q.Change.IsZero() && q.ChangePct.IsZero() && q.PreClose.IsPositive() && !q.Close.Equal(q.PreClose) {
+		sb.WriteString("涨跌: 暂无（存储字段与收盘/昨收不一致，不作为零涨跌使用）\n")
+	} else {
+		fmt.Fprintf(&sb, "涨跌: %s (%s%%)\n", signed(q.Change, 3), signed(q.ChangePct, 2))
+	}
+	turnover := q.Turnover.StringFixed(2) + "%"
+	if q.Turnover.IsZero() && q.Volume.IsPositive() {
+		turnover = "暂无（有成交但源未提供可验证换手率）"
+	}
+	fmt.Fprintf(&sb, "成交量: %s  成交额: %s  换手率: %s\n",
+		formatAmount(q.Volume), formatAmount(q.Amount), turnover)
 	fmt.Fprintf(&sb, "市盈率(PE): %s  市净率(PB): %s", formatRatio(q.PE), formatRatio(q.PB))
 	if q.IsLimitUp() {
 		sb.WriteString("\n注意: 该标的当日接近或触及涨停。")

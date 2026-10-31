@@ -1,0 +1,12 @@
+{
+  "instrument": "002131.SZ",
+  "as_of": "2026-10-31",
+  "provider": "eastmoney",
+  "mode": "direct-public-source-probe",
+  "database_written": false,
+  "llm_called": false,
+  "results": [
+    {"kind": "quote", "count": 1, "trade_date": "2026-10-30"},
+    {"kind": "news", "count": 10, "newest_published_at": "2026-10-30T09:43:34+08:00"}
+  ]
+}

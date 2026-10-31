@@ -1,7 +1,7 @@
 package entities
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 
 	"github.com/shopspring/decimal"
@@ -14,12 +14,14 @@ type CostBudget struct {
 	limit, spent, reserved decimal.Decimal
 }
 
+var ErrCostBudget = errors.New("run cost budget cannot admit next model request")
+
 func NewCostBudget(limit decimal.Decimal) *CostBudget { return &CostBudget{limit: limit} }
 func (b *CostBudget) Reserve(estimate decimal.Decimal) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if estimate.IsNegative() || b.spent.Add(b.reserved).Add(estimate).GreaterThan(b.limit) {
-		return fmt.Errorf("run cost budget cannot admit next model request")
+		return ErrCostBudget
 	}
 	b.reserved = b.reserved.Add(estimate)
 	return nil
@@ -34,3 +36,5 @@ func (b *CostBudget) Settle(reservation, actual decimal.Decimal, known bool) {
 		b.spent = b.spent.Add(reservation)
 	}
 }
+
+func (b *CostBudget) Limit() decimal.Decimal { return b.limit }

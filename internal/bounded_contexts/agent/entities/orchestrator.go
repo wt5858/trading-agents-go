@@ -69,10 +69,12 @@ func (s Stage) HasStrictMember() bool {
 // 中间这一层翻译的代价是十几行代码，换来的是编排器不必知道
 // analysis 上下文长什么样。
 type StageOutcome struct {
-	Phase    value_objects.Phase
-	Agents   []value_objects.AgentKind
-	Failed   []value_objects.AgentKind
-	Duration time.Duration
+	SkippedAgents []value_objects.AgentKind
+	Skipped       bool
+	Phase         value_objects.Phase
+	Agents        []value_objects.AgentKind
+	Failed        []value_objects.AgentKind
+	Duration      time.Duration
 }
 
 // Plan 是一次分析的完整编排计划。
@@ -199,8 +201,9 @@ func (p Plan) StepKeys() []value_objects.StepKey {
 // 至于 Act 背后发生了什么，由注入的 Runtime 决定。
 // 因此这个类型可以被完整地单元测试——测试里的 Runtime 就是一个返回固定文本的桩。
 type Orchestrator struct {
-	plan Plan
-	sink ProgressSink
+	checkpoint func(context.Context) error
+	plan       Plan
+	sink       ProgressSink
 
 	// reportMu 串行化进度回调。
 	//
@@ -276,9 +279,21 @@ func (o *Orchestrator) Run(ctx context.Context, rt Runtime, ac *AnalysisContext)
 	}
 
 	outcomes := make([]StageOutcome, 0, len(o.plan.Stages))
+	allAnalystsSkipped := false
 	for _, stage := range o.plan.Stages {
 		if err := ctx.Err(); err != nil {
 			return outcomes, err
+		}
+		if stage.Phase != value_objects.PhaseAnalyst && (allAnalystsSkipped || !ac.Snapshot().DecisionReady()) {
+			detail := "证据不足，已跳过该决策步骤"
+			if allAnalystsSkipped {
+				detail = "本次可选分析已跳过，该决策步骤未执行"
+			}
+			for _, m := range stage.Members {
+				o.report(true, m.Contract().Step, detail)
+			}
+			outcomes = append(outcomes, StageOutcome{Phase: stage.Phase, Skipped: true})
+			continue
 		}
 		// 阶段之间是最划算的止损点：此处停下来，已完成阶段的产出全部保留，
 		// 而下一阶段那三到六次调用一次都不会发生。
@@ -289,6 +304,9 @@ func (o *Orchestrator) Run(ctx context.Context, rt Runtime, ac *AnalysisContext)
 		}
 		outcome, err := o.runStage(ctx, stage, rt, ac)
 		outcomes = append(outcomes, outcome)
+		if stage.Phase == value_objects.PhaseAnalyst && outcome.Skipped {
+			allAnalystsSkipped = true
+		}
 		if err != nil {
 			return outcomes, err
 		}
@@ -311,6 +329,14 @@ func (o *Orchestrator) runStage(ctx context.Context, stage Stage, rt Runtime, ac
 	}
 
 	outcome.Failed = failed
+	for _, m := range stage.Members {
+		if ac.SkipReason(m.Contract().Kind) != "" {
+			outcome.SkippedAgents = append(outcome.SkippedAgents, m.Contract().Kind)
+		}
+	}
+	if len(outcome.SkippedAgents) == len(stage.Members) {
+		outcome.Skipped = true
+	}
 	outcome.Duration = time.Since(started)
 	if err != nil {
 		return outcome, err
@@ -318,7 +344,7 @@ func (o *Orchestrator) runStage(ctx context.Context, stage Stage, rt Runtime, ac
 
 	// MinSuccess 在阶段收尾时统一判定。放在这里而不是边跑边判，
 	// 是因为容错阶段本来就要跑完全部成员才知道到底活下来几个。
-	if succeeded := len(stage.Members) - len(failed); stage.MinSuccess > 0 && succeeded < stage.MinSuccess {
+	if succeeded := len(stage.Members) - len(failed) - len(outcome.SkippedAgents); !outcome.Skipped && stage.MinSuccess > 0 && succeeded < stage.MinSuccess {
 		return outcome, custom_errors.Unavailable(
 			"%s阶段全部失败（%d/%d 成功，至少需要 %d）",
 			stage.Phase.DisplayName(), succeeded, len(stage.Members), stage.MinSuccess)
@@ -391,11 +417,21 @@ func (o *Orchestrator) runMember(ctx context.Context, m Agent, rt Runtime, ac *A
 		o.report(false, contract.Step, reason)
 		return custom_errors.Unavailable("%s", reason)
 	}
-	if err := m.Act(ctx, rt, ac); err != nil {
+	runErr := m.Act(ctx, rt, ac)
+	if o.checkpoint != nil {
+		if err := o.checkpoint(ctx); err != nil {
+			return custom_errors.Unavailable("运行检查点保存失败").Wrap(err)
+		}
+	}
+	if err := runErr; err != nil {
 		o.report(false, contract.Step, custom_errors.MessageOf(err))
 		return err
 	}
-	o.report(true, contract.Step, contract.DisplayName+"完成")
+	if reason := ac.SkipReason(contract.Kind); reason != "" {
+		o.report(true, contract.Step, reason)
+	} else {
+		o.report(true, contract.Step, contract.DisplayName+"完成")
+	}
 	return nil
 }
 
@@ -430,4 +466,9 @@ func failedKindsOf(members []Agent, outcomes []concurrency.Outcome[struct{}]) []
 		}
 	}
 	return failed
+}
+
+func (o *Orchestrator) WithCheckpoint(save func(context.Context) error) *Orchestrator {
+	o.checkpoint = save
+	return o
 }

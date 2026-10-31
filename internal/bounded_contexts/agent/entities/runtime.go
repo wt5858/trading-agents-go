@@ -8,12 +8,16 @@ import (
 
 // Turn 是交给 Runtime 执行的一次「成员发言」。
 type Turn struct {
+	Research *value_objects.ResearchTask
 	Contract value_objects.Contract
 	Snapshot ContextSnapshot
 }
 
 // TurnResult 是一次发言的产出。
 type TurnResult struct {
+	Skipped       bool
+	SkipReason    string
+	AnalystReport *value_objects.AnalystReport
 	ModelCalls    []value_objects.ModelCallRecord
 	AgentArtifact string
 	Content       string

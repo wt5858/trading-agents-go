@@ -10,6 +10,8 @@ import (
 )
 
 type costBudgetKey struct{}
+type armBudgetKey struct{}
+type pairBudgetKey struct{}
 
 func WithCostBudget(ctx context.Context, limit decimal.Decimal) context.Context {
 	if !limit.IsPositive() {
@@ -35,6 +37,13 @@ func reserveCost(ctx context.Context, client LLMClient, req vo.CompletionRequest
 	if err := budget.Reserve(estimate); err != nil {
 		return nil, decimal.Zero, err
 	}
+	arm, _ := ctx.Value(armBudgetKey{}).(*entities.CostBudget)
+	if arm != nil {
+		if err := arm.Reserve(estimate); err != nil {
+			budget.Settle(estimate, decimal.Zero, true)
+			return nil, decimal.Zero, err
+		}
+	}
 	return func(result *vo.CompletionResult) {
 		known := result != nil && (result.Usage.CostStatus == "estimated" || result.Usage.CostStatus == "mock")
 		actual := decimal.Zero
@@ -42,5 +51,24 @@ func reserveCost(ctx context.Context, client LLMClient, req vo.CompletionRequest
 			actual = result.Usage.CostUSD
 		}
 		budget.Settle(estimate, actual, known)
+		if arm != nil {
+			arm.Settle(estimate, actual, known)
+		}
 	}, estimate, nil
+}
+
+func armAllowance(ctx context.Context) decimal.Decimal {
+	if v, ok := ctx.Value(pairBudgetKey{}).(decimal.Decimal); ok {
+		return v
+	}
+	if parent, ok := ctx.Value(costBudgetKey{}).(*entities.CostBudget); ok {
+		return parent.Limit().DivRound(decimal.NewFromInt(2), 8)
+	}
+	return decimal.Zero
+}
+func armContext(ctx context.Context, allowance decimal.Decimal) context.Context {
+	if allowance.IsPositive() {
+		return context.WithValue(ctx, armBudgetKey{}, entities.NewCostBudget(allowance))
+	}
+	return ctx
 }

@@ -37,32 +37,9 @@ func (EvaluationMock) Complete(ctx context.Context, r vo.CompletionRequest) (*vo
 		return nil, err
 	}
 	result := &vo.CompletionResult{Usage: vo.Usage{Calls: 1, PromptTokens: 10, CompletionTokens: 20, TotalTokens: 30, CostStatus: "mock"}, FinishReason: "stop"}
-	if len(r.Messages) > 0 && strings.HasPrefix(r.Messages[0].Content, "baseline:") {
-		result.Content = "Mock基线报告，仅验证运行链路。"
-		return result, nil
-	}
-	for _, m := range r.Messages {
-		if m.Role == vo.RoleTool {
-			var e struct {
-				ID      string `json:"evidence_id"`
-				Missing bool   `json:"missing"`
-			}
-			if json.Unmarshal([]byte(m.Content), &e) == nil && e.ID != "" {
-				report := vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Claim: "Mock证据引用，仅验证链路。", EvidenceIDs: []string{e.ID}}}}
-				if e.Missing {
-					report = vo.AnalystReport{Status: "insufficient", Direction: "neutral", Missing: []string{"本职数据缺失"}}
-				}
-				raw, _ := json.Marshal(report)
-				result.Content = string(raw)
-				return result, nil
-			}
-		}
-	}
 	task := ""
 	for _, m := range r.Messages {
-		if m.Role == vo.RoleUser {
-			task = m.Content
-		}
+		task += m.Content
 	}
 	preferred := vo.ToolGetQuote
 	for _, p := range []struct {
@@ -71,6 +48,38 @@ func (EvaluationMock) Complete(ctx context.Context, r vo.CompletionRequest) (*vo
 	}{{"基本面分析师", vo.ToolGetFinancials}, {"新闻面分析师", vo.ToolGetNews}, {"市场情绪分析师", vo.ToolGetSocialSentiment}, {"板块轮动分析师", vo.ToolGetSectorContext}, {"大盘环境分析师", vo.ToolGetIndexContext}} {
 		if strings.Contains(task, p.word) {
 			preferred = p.tool
+		}
+	}
+	type evidence struct {
+		ID      string      `json:"evidence_id"`
+		Missing bool        `json:"missing"`
+		Data    string      `json:"data"`
+		Tool    vo.ToolName `json:"tool"`
+	}
+	respond := func(e evidence) *vo.CompletionResult {
+		report := vo.AnalystReport{Status: "complete", Direction: "neutral", Findings: []vo.AnalystFinding{{Kind: "fact", Claim: e.Data, EvidenceIDs: []string{e.ID}, EvidenceQuotes: map[string]string{e.ID: e.Data}}}}
+		if e.Missing {
+			report = vo.AnalystReport{Status: "insufficient", Direction: "neutral", Missing: []string{"本职数据缺失"}}
+		}
+		raw, _ := json.Marshal(report)
+		result.Content = string(raw)
+		return result
+	}
+	baseline := len(r.Messages) > 0 && strings.HasPrefix(r.Messages[0].Content, "baseline:")
+	for _, m := range r.Messages {
+		if m.Role == vo.RoleTool {
+			var e evidence
+			if json.Unmarshal([]byte(m.Content), &e) == nil && e.ID != "" {
+				return respond(e), nil
+			}
+		}
+		if baseline && m.Role == vo.RoleUser {
+			for _, line := range strings.Split(m.Content, "\n") {
+				var e evidence
+				if json.Unmarshal([]byte(line), &e) == nil && e.Tool == preferred {
+					return respond(e), nil
+				}
+			}
 		}
 	}
 	for _, tool := range r.Tools {

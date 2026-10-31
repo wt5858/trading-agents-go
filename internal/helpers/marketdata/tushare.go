@@ -251,15 +251,21 @@ func (p *TushareProvider) toStockList(rows []map[string]any) []*entities.Stock {
 // Tushare 的 daily 接口不支持「取最新一条」，只能给日期区间再自己挑。
 // 这里往前找 14 个自然日，足以覆盖春节等长假，又不会拉太多数据。
 func (p *TushareProvider) FetchQuote(ctx context.Context, code shared_vo.StockCode) (*value_objects.Quote, error) {
+	return p.FetchQuoteAsOf(ctx, code, shared_vo.Today())
+}
+
+func (p *TushareProvider) FetchQuoteAsOf(ctx context.Context, code shared_vo.StockCode, asOf shared_vo.TradeDate) (*value_objects.Quote, error) {
 	if !p.Supports(code.Market) {
 		return nil, custom_errors.Invalid("tushare 不支持市场 %s", code.Market)
 	}
-	now := time.Now()
+	if asOf.IsZero() {
+		return nil, custom_errors.Invalid("历史行情必须指定日期")
+	}
 	rows, err := p.call(ctx, "daily", map[string]any{
 		// Tushare 认带交易所后缀的 ts_code（600519.SH），FullSymbol 正好是这个格式。
 		"ts_code":    code.FullSymbol(),
-		"start_date": now.AddDate(0, 0, -14).Format(dateLayoutTushare),
-		"end_date":   now.Format(dateLayoutTushare),
+		"start_date": asOf.AddDays(-14).Compact(),
+		"end_date":   asOf.Compact(),
 	}, "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount")
 	if err != nil {
 		return nil, err
@@ -269,14 +275,24 @@ func (p *TushareProvider) FetchQuote(ctx context.Context, code shared_vo.StockCo
 	}
 
 	// 官方文档说按交易日倒序，但不作保证，显式挑最大日期更稳。
-	latest := rows[0]
-	for _, row := range rows[1:] {
-		if toString(row["trade_date"]) > toString(latest["trade_date"]) {
+	var latest map[string]any
+	for _, row := range rows {
+		date := parseTushareTradeDate(toString(row["trade_date"]))
+		if date.IsZero() || asOf.Before(date) {
+			continue
+		}
+		if latest == nil || toString(row["trade_date"]) > toString(latest["trade_date"]) {
 			latest = row
 		}
 	}
+	if latest == nil {
+		return nil, custom_errors.NotFound("数据源没有分析日期内的行情")
+	}
 
 	q := p.toQuote(code, latest)
+	if q.TradeDate.IsZero() || asOf.Before(q.TradeDate) {
+		return nil, custom_errors.Unavailable("数据源返回了分析日期之后或日期无效的行情")
+	}
 	return &q, nil
 }
 

@@ -16,6 +16,17 @@ import (
 // 转身对一个刚刚掐掉我们连接的数据源打几千次请求。
 var ErrBatchUnsupported = errors.New("数据源无批量端点")
 
+var ErrDataUnsupported = errors.New("数据源不支持该类分析数据")
+
+// Optional capabilities keep existing providers usable while distinguishing an
+// unsupported endpoint from a network failure or a genuine empty response.
+type HistoricalQuoteProvider interface {
+	FetchQuoteAsOf(context.Context, shared_vo.StockCode, shared_vo.TradeDate) (*value_objects.Quote, error)
+}
+type SocialDataProvider interface {
+	FetchSocialPosts(context.Context, shared_vo.StockCode, shared_vo.DateRange, int) ([]value_objects.SocialPost, error)
+}
+
 // DataProvider 是外部行情数据源端口（Tushare / Finnhub / Mock ...）。
 //
 // 它声明在消费方这一侧而不是实现方，和 identity 的 TokenIssuer 是同一套做法：

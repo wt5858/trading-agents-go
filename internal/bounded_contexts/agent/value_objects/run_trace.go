@@ -4,6 +4,7 @@ import (
 	"time"
 
 	analysis_vo "github.com/wt5858/trading-agents-go/internal/bounded_contexts/analysis/value_objects"
+	stock "github.com/wt5858/trading-agents-go/internal/bounded_contexts/stock/value_objects"
 	shared_vo "github.com/wt5858/trading-agents-go/internal/domain_kernel/value_objects"
 )
 
@@ -14,10 +15,15 @@ import (
 // 回一个带锁、带待发布事件、带一整份行情素材的聚合给读路径，
 // 只会让调用方误以为手里这份还能接着跑。
 type RunTrace struct {
-	RunID     string
-	Code      shared_vo.StockCode
-	TradeDate shared_vo.TradeDate
-	Depth     analysis_vo.Depth
+	DataPreparations []stock.DataPreparation
+	Research         *ResearchTrace
+	ExecutionID      string
+	InProgress       bool
+	PendingTurns     []TurnRecord
+	RunID            string
+	Code             shared_vo.StockCode
+	TradeDate        shared_vo.TradeDate
+	Depth            analysis_vo.Depth
 	// RequestedModel 是请求里指定的模型，可能是空串（走默认）或一个别名。
 	// 每位成员实际落到哪个模型上在 Turns[i].Model 里。
 	RequestedModel string

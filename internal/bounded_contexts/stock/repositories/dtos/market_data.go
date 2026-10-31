@@ -29,22 +29,28 @@ import (
 // trade_date 存 YYYY-MM-DD 定长串而不是 BSON date：定长串的字典序与时间序等价，
 // 区间查询可以直接 $gte/$lte，省掉时区换算，也让索引前缀压缩更有效。
 
-// codeColumns 是 StockCode 在 Mongo 文档里的扁平形态。
+// CodeColumns 是 StockCode 在 Mongo 文档里的扁平形态。
 // 用内嵌结构体复用到五个 DTO 上，保证五个集合的字段名严格一致——
 // 一旦某个集合把 symbol 写成 stock_symbol，跨集合的聚合查询就全废了。
-type codeColumns struct {
+type CodeColumns struct {
 	Symbol string `bson:"symbol"`
 	Market string `bson:"market"`
 	Raw    string `bson:"raw_code,omitempty"`
 }
 
-func codeColumnsOf(c shared_vo.StockCode) codeColumns {
-	return codeColumns{Symbol: c.Symbol, Market: string(c.Market), Raw: c.Raw}
+func codeColumnsOf(c shared_vo.StockCode) CodeColumns {
+	return CodeColumns{Symbol: c.Symbol, Market: string(c.Market), Raw: c.Raw}
 }
 
 // toDomain 直接拼装而不走 shared_vo.NewStockCode：库里的数据是既成事实，
 // 读路径再跑一次写入期的校验，只会让历史脏数据把整个查询打挂。
-func (c codeColumns) toDomain() shared_vo.StockCode {
+func (c CodeColumns) toDomain() shared_vo.StockCode {
+	// Legacy rows may omit market or retain an exchange suffix in symbol. Repair
+	// unambiguous spellings at this storage boundary; never relabel a valid market.
+	if code, err := shared_vo.NewStockCode(c.Symbol, shared_vo.Market(c.Market)); err == nil {
+		code.Raw = c.Raw
+		return code
+	}
 	return shared_vo.StockCode{Symbol: c.Symbol, Market: shared_vo.Market(c.Market), Raw: c.Raw}
 }
 
@@ -59,7 +65,7 @@ func (c codeColumns) toDomain() shared_vo.StockCode {
 // close-pre_close 或 close*volume 重新推导——重算的结果和源口径对不上，
 // 而下游无从分辨自己拿到的是哪一种。
 type QuoteDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	TradeDate   string          `bson:"trade_date"`
 	Open        decimal.Decimal `bson:"open"`
 	High        decimal.Decimal `bson:"high"`
@@ -100,7 +106,7 @@ func (dto QuoteDto) ToDomain() value_objects.Quote {
 
 func FromDomainQuote(q value_objects.Quote) *QuoteDto {
 	return &QuoteDto{
-		codeColumns: codeColumnsOf(q.Code),
+		CodeColumns: codeColumnsOf(q.Code),
 		TradeDate:   q.TradeDate.String(),
 		Open:        q.Open,
 		High:        q.High,
@@ -133,7 +139,7 @@ func ToDomainQuotes(rows []QuoteDto) []value_objects.Quote {
 
 // KlineDto 对应 klines 集合。自然键 = (symbol, period, trade_date)。
 type KlineDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	Period      string          `bson:"period"`
 	TradeDate   string          `bson:"trade_date"`
 	Open        decimal.Decimal `bson:"open"`
@@ -166,7 +172,7 @@ func (dto KlineDto) ToDomain() value_objects.Kline {
 
 func FromDomainKline(k value_objects.Kline) *KlineDto {
 	return &KlineDto{
-		codeColumns: codeColumnsOf(k.Code),
+		CodeColumns: codeColumnsOf(k.Code),
 		Period:      k.Period.String(),
 		TradeDate:   k.TradeDate.String(),
 		Open:        k.Open,
@@ -198,7 +204,7 @@ func ToDomainKlines(rows []KlineDto) []value_objects.Kline {
 // 读路径不再用 net_profit / revenue 现算。Tushare 的 fina_indicator 表
 // 本来就没有稳定的绝对营收/净利字段，现算只会得到 0 这个假值。
 type FinancialDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	ReportDate  string `bson:"report_date"`
 	// AnnounceDate 是披露日，omitempty 因为老数据没有这一列。
 	// 它与 ReportDate 的区别见 value_objects.Financial 的字段说明——
@@ -252,7 +258,7 @@ func (dto FinancialDto) ToDomain() value_objects.Financial {
 
 func FromDomainFinancial(f value_objects.Financial) *FinancialDto {
 	return &FinancialDto{
-		codeColumns:  codeColumnsOf(f.Code),
+		CodeColumns:  codeColumnsOf(f.Code),
 		ReportDate:   f.ReportDate.String(),
 		AnnounceDate: f.AnnounceDate.String(),
 		PeriodType:   f.PeriodType.String(),
@@ -284,7 +290,7 @@ func ToDomainFinancials(rows []FinancialDto) []value_objects.Financial {
 
 // NewsDto 对应 news 集合。自然键 = (symbol, url)。
 type NewsDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	Title       string          `bson:"title"`
 	Content     string          `bson:"content"`
 	Source      string          `bson:"source"`
@@ -309,7 +315,7 @@ func (dto NewsDto) ToDomain() value_objects.News {
 
 func FromDomainNews(n value_objects.News) *NewsDto {
 	return &NewsDto{
-		codeColumns: codeColumnsOf(n.Code),
+		CodeColumns: codeColumnsOf(n.Code),
 		Title:       n.Title,
 		Content:     n.Content,
 		Source:      n.Source,
@@ -329,7 +335,7 @@ func ToDomainNewsList(rows []NewsDto) []value_objects.News {
 
 // SocialPostDto 对应 social_posts 集合。自然键 = (symbol, platform, published_at)。
 type SocialPostDto struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	Platform    string          `bson:"platform"`
 	Author      string          `bson:"author"`
 	Content     string          `bson:"content"`
@@ -352,7 +358,7 @@ func (dto SocialPostDto) ToDomain() value_objects.SocialPost {
 
 func FromDomainSocialPost(p value_objects.SocialPost) *SocialPostDto {
 	return &SocialPostDto{
-		codeColumns: codeColumnsOf(p.Code),
+		CodeColumns: codeColumnsOf(p.Code),
 		Platform:    p.Platform,
 		Author:      p.Author,
 		Content:     p.Content,

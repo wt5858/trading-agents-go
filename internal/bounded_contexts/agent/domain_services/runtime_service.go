@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -134,6 +135,12 @@ func NewRuntimeService(
 
 // Execute 让一位成员完成一次发言。
 func (s *RuntimeService) Execute(ctx context.Context, turn entities.Turn) (entities.TurnResult, error) {
+	if err := ctx.Err(); err != nil {
+		return entities.TurnResult{}, custom_errors.Unavailable("分析已取消").Wrap(err)
+	}
+	if reason := turn.Snapshot.AnalystSkipReason(turn.Contract.Kind); reason != "" {
+		return entities.TurnResult{Skipped: true, SkipReason: reason}, nil
+	}
 	if s.router == nil {
 		return entities.TurnResult{}, custom_errors.Internal("未配置模型路由")
 	}
@@ -263,11 +270,14 @@ func digestRequest(req value_objects.ChatRequest) (int, string) {
 		h.Write([]byte{0})
 	}
 	// 采样参数与工具授权一并进键。工具只取名字：声明的描述与 schema
-	// 是随代码走的，不会在同一个二进制里变化。
+	// 也进入摘要，防止跨版本缓存或工具热更新复用旧结果。
 	fmt.Fprintf(h, "\x00t=%v\x00mt=%d\x00tr=%d", req.Temperature, req.MaxTokens, req.MaxToolRounds)
 	for _, name := range req.Access.Names() {
 		h.Write([]byte("\x00tool=" + name.String()))
 	}
+	schema, _ := json.Marshal(req.Tools)
+	h.Write([]byte("\x00schema="))
+	h.Write(schema)
 	return chars, hex.EncodeToString(h.Sum(nil)[:8])
 }
 
@@ -292,6 +302,10 @@ func (s *RuntimeService) chat(
 	var usage value_objects.Usage
 	var toolTrace []value_objects.ToolCallRecord
 	var modelCalls []value_objects.ModelCallRecord
+	// Only whole-corpus missing results from frozen tools are terminal. Search
+	// misses are query-specific; live tools may change and are never retired here.
+	terminal := map[value_objects.ToolName]string{}
+	forceConclusion := false
 
 	// 解析出来的模型名与工具轨迹统一在出口回填，而不是在下面七个 return 上各写一遍。
 	// 这个循环的退出点会随着厂商的怪异行为继续增加（见下面那条「没给工具也硬发工具调用」），
@@ -301,6 +315,9 @@ func (s *RuntimeService) chat(
 		resp.Model = model
 		resp.ToolCalls = toolTrace
 		resp.ModelCalls = modelCalls
+		if resp.Messages == nil {
+			resp.Messages = append([]value_objects.Message(nil), messages...)
+		}
 	}()
 
 	maxRounds := req.MaxToolRounds
@@ -310,8 +327,16 @@ func (s *RuntimeService) chat(
 		}
 
 		// 最后一轮不再提供工具：模型没有工具可调，只能给出结论。
-		final := round == maxRounds
-		tools := req.Tools
+		final := round == maxRounds || forceConclusion
+		tools := make([]value_objects.ToolSpec, 0, len(req.Tools))
+		for _, spec := range req.Tools {
+			if _, missing := terminal[spec.Name]; !missing {
+				tools = append(tools, spec)
+			}
+		}
+		if len(terminal) > 0 && len(tools) == 0 {
+			final = true
+		}
 		if final {
 			tools = nil
 		}
@@ -320,6 +345,10 @@ func (s *RuntimeService) chat(
 			return value_objects.ChatResponse{Usage: usage}, custom_errors.Unavailable("Agent token budget exhausted")
 		}
 		started := time.Now()
+		pending := append(append([]value_objects.ModelCallRecord(nil), modelCalls...), value_objects.ModelCallRecord{Pending: true, Round: round, Model: model, Provider: client.Provider(), StartedAt: started, Usage: value_objects.Usage{CostStatus: "unknown_usage"}})
+		if err := reportModelProgress(ctx, entities.TurnResult{Model: model, Usage: usage, ModelCalls: pending, ToolCalls: toolTrace}); err != nil {
+			return value_objects.ChatResponse{Usage: usage}, err
+		}
 		res, reservation, err := s.completeLimited(ctx, client, value_objects.CompletionRequest{
 			Model:       model,
 			Messages:    messages,
@@ -338,6 +367,9 @@ func (s *RuntimeService) chat(
 			rec.Failed = true
 		}
 		modelCalls = append(modelCalls, rec)
+		if saveErr := reportModelProgress(ctx, entities.TurnResult{Model: model, Usage: usage, ModelCalls: modelCalls, ToolCalls: toolTrace}); saveErr != nil {
+			return value_objects.ChatResponse{Usage: usage}, saveErr
+		}
 		if err != nil {
 			return value_objects.ChatResponse{Messages: messages, Usage: usage}, err
 		}
@@ -348,7 +380,7 @@ func (s *RuntimeService) chat(
 				Messages:   messages,
 				Usage:      usage,
 				ToolRounds: round,
-				Truncated:  final && round > 0,
+				Truncated:  round == maxRounds && round > 0,
 			}, nil
 		}
 		if final {
@@ -366,7 +398,13 @@ func (s *RuntimeService) chat(
 		}
 
 		messages = append(messages, value_objects.AssistantToolCallMessage(res.Content, res.ToolCalls))
-		results, records, err := s.invokeTools(ctx, res.ToolCalls, req.Access, subject)
+		allReused := len(res.ToolCalls) > 0
+		for _, call := range res.ToolCalls {
+			if _, missing := terminal[call.Name]; !missing {
+				allReused = false
+			}
+		}
+		results, records, err := s.invokeToolsWithTerminal(ctx, res.ToolCalls, req.Access, subject, terminal)
 		// 轮次由这里回填而不是传进 invokeTools：那个方法执行的是「同一轮里的一批调用」，
 		// 它没有理由知道自己是第几轮，传进去只会多一个与它职责无关的参数。
 		for i := range records {
@@ -377,6 +415,20 @@ func (s *RuntimeService) chat(
 			return value_objects.ChatResponse{Messages: messages, Usage: usage}, err
 		}
 		messages = append(messages, results...)
+		if registry, ok := s.tools.(frozenRegistry); ok {
+			for i, result := range results {
+				var page frozenEvidence
+				if records[i].OK && json.Unmarshal([]byte(result.Content), &page) == nil && page.Missing && page.Total == 0 && page.ID != "" && page.Tool != value_objects.ToolSearchEvidence {
+					if _, exists := registry.Lookup(page.Tool); exists {
+						terminal[page.Tool] = result.Content
+					}
+				}
+			}
+		}
+		if allReused {
+			forceConclusion = true
+			messages = append(messages, value_objects.UserMessage("这些冻结工具已确认数据缺失，本轮不会刷新。请停止重复调用，依据已有证据给出结论，并说明缺失和影响。"))
+		}
 	}
 
 	// maxRounds >= 0 时循环至少执行一次并在内部返回，走到这里只可能是逻辑写错了。
@@ -401,6 +453,10 @@ func (s *RuntimeService) invokeTools(
 	access value_objects.DataAccess,
 	subject ToolInvocation,
 ) ([]value_objects.Message, []value_objects.ToolCallRecord, error) {
+	return s.invokeToolsWithTerminal(ctx, calls, access, subject, nil)
+}
+
+func (s *RuntimeService) invokeToolsWithTerminal(ctx context.Context, calls []value_objects.ToolCall, access value_objects.DataAccess, subject ToolInvocation, terminal map[value_objects.ToolName]string) ([]value_objects.Message, []value_objects.ToolCallRecord, error) {
 	// 超出单轮上限的调用不执行，但**仍然要回一条结果**。
 	//
 	// OpenAI 与 Anthropic 都要求每个 tool_call 恰好对应一条 tool 消息，
@@ -415,6 +471,9 @@ func (s *RuntimeService) invokeTools(
 
 	outcomes, err := concurrency.Settle(ctx, exec, s.cfg.ToolFanOutLimit,
 		func(ctx context.Context, call value_objects.ToolCall) (toolOutcome, error) {
+			if result, knownMissing := terminal[call.Name]; knownMissing && access.Allows(call.Name) {
+				return toolOutcome{result: result, reused: true}, nil
+			}
 			start := time.Now()
 			res, err := s.invokeOne(ctx, call, access, subject)
 			// 失败也带回耗时：Settle 的 Outcome 同时保留 Value 与 Err，
@@ -431,6 +490,7 @@ func (s *RuntimeService) invokeTools(
 	for i, o := range outcomes {
 		result := o.Value.result
 		rec := value_objects.ToolCallRecord{
+			Reused:   o.Value.reused,
 			Name:     calls[i].Name,
 			OK:       o.Err == nil,
 			Duration: o.Value.duration,
@@ -439,8 +499,14 @@ func (s *RuntimeService) invokeTools(
 			// 工具失败以「工具结果」的形式回灌，而不是让整次发言失败：
 			// 模型完全有能力在一个数据源缺失时换个角度论证。
 			rec.FailReason = custom_errors.MessageOf(o.Err)
+			if custom_errors.CodeOf(o.Err) == custom_errors.CodeInternal {
+				s.log.Warn("工具执行失败", zap.String("tool", calls[i].Name.String()), zap.Error(o.Err))
+			}
 			result = fmt.Sprintf("工具执行失败: %s。请不要猜测该数据，直接说明这一项缺失。",
 				custom_errors.MessageOf(o.Err))
+			if custom_errors.CodeOf(o.Err) == custom_errors.CodeInvalidArgument {
+				result = fmt.Sprintf("工具参数无效: %s。请根据工具 schema 修正参数；参数错误不能证明源数据缺失，请不要猜测。", rec.FailReason)
+			}
 		}
 		clipped, truncated := s.clip(result)
 		rec.ResultChars = len([]rune(clipped))
@@ -472,6 +538,7 @@ func (s *RuntimeService) invokeTools(
 // 而这个前提不被类型系统保证，只被 Settle 的实现细节保证。
 // 换成返回值之后完全没有共享状态，也就没有需要论证的前提。
 type toolOutcome struct {
+	reused   bool
 	result   string
 	duration time.Duration
 }
@@ -562,11 +629,30 @@ func (s *RuntimeService) completeLimited(ctx context.Context, client LLMClient, 
 			return nil, decimal.Zero, ctx.Err()
 		}
 	}
+	var tokenSettle func(*value_objects.Usage)
+	if budget, ok := ctx.Value(researchBudgetKey{}).(*entities.ResearchBudget); ok {
+		raw, _ := json.Marshal(req)
+		var err error
+		tokenSettle, err = budget.Reserve(len(raw) + req.MaxTokens + 256)
+		if err != nil {
+			return nil, decimal.Zero, err
+		}
+	}
 	settle, reservation, err := reserveCost(ctx, client, req)
 	if err != nil {
+		if tokenSettle != nil {
+			tokenSettle(nil)
+		}
 		return nil, decimal.Zero, err
 	}
 	result, err := client.Complete(ctx, req)
+	if tokenSettle != nil {
+		usage := value_objects.Usage{}
+		if result != nil {
+			usage = result.Usage
+		}
+		tokenSettle(&usage)
+	}
 	settle(result)
 	return result, reservation, err
 }

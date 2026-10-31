@@ -50,8 +50,14 @@ func (s Stance) DisplayName() string {
 
 // ChainLink 是决策链上的一环：一位成员的一次发言。
 type ChainLink struct {
-	ModelCalls    []ChainModelCall
-	AgentArtifact string
+	Skipped          bool
+	SkipReason       string
+	Purpose          string
+	Pending          bool
+	AnalystStatus    string
+	EvidenceVerified bool
+	ModelCalls       []ChainModelCall
+	AgentArtifact    string
 	// Seq 是真实完成顺序，从 1 起。
 	Seq       int
 	Agent     string
@@ -93,15 +99,27 @@ type ChainLink struct {
 // 本上下文自己定义而不是复用 agent 的 ToolCallRecord，理由同 DecisionChain：
 // analysis 不认识另一个限界上下文的类型。翻译发生在 agent 那一侧。
 type ChainToolCall struct {
-	Round int
-	Name  string
-	OK    bool
+	Reused bool
+	Round  int
+	Name   string
+	OK     bool
 	// FailReason 仅在 OK 为 false 时有值。
 	FailReason string
 	DurationS  decimal.Decimal
 	// ResultChars 是真正回灌给模型的字符数，Truncated 表示原始结果被截断过。
 	ResultChars int
 	Truncated   bool
+}
+
+type DataPreparation struct {
+	Kind       string `json:"kind"`
+	Provider   string `json:"provider"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+	Count      int    `json:"count"`
+	Rejected   int    `json:"rejected"`
+	Saved      bool   `json:"saved"`
+	DurationMS int64  `json:"durationMs"`
 }
 
 // ChainVerdict 是决策链末端的终裁。
@@ -125,9 +143,12 @@ type ChainVerdict struct {
 // 数据来自 agent 上下文的运行轨迹，由那一侧翻译成本上下文的形状：
 // 本上下文不认识 AgentKind、Phase 这些另一个限界上下文的类型。
 type DecisionChain struct {
-	TaskID    string
-	Symbol    string
-	TradeDate string
+	DataPreparations []DataPreparation
+	ExecutionID      string
+	InProgress       bool
+	TaskID           string
+	Symbol           string
+	TradeDate        string
 
 	// Links 按 Seq 升序，也就是真实完成顺序。
 	// 并行阶段（六位分析师、三位风控辩手）的相对顺序因此每次都可能不同，
@@ -155,6 +176,7 @@ func (c DecisionChain) LinksOfPhase(phase string) []ChainLink {
 
 // ChainModelCall exposes stored per-request accounting; it never recalculates costs.
 type ChainModelCall struct {
+	Pending          bool            `json:"pending,omitempty"`
 	ReservedCostUSD  decimal.Decimal `json:"reservedCostUsd"`
 	Round            int             `json:"round"`
 	Model            string          `json:"model"`

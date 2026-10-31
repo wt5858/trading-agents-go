@@ -6,7 +6,7 @@ import (
 )
 
 type MarketContextDTO struct {
-	codeColumns `bson:",inline"`
+	CodeColumns `bson:",inline"`
 	Scope       string `bson:"scope"`
 	Reference   string `bson:"reference"`
 	AsOf        string `bson:"as_of"`
@@ -19,5 +19,5 @@ func FromDomainMarketContext(v vo.MarketContext) MarketContextDTO {
 	return MarketContextDTO{codeColumnsOf(v.Code), v.Scope, v.Reference, v.AsOf.String(), v.AvailableOn.String(), v.Source, v.Data}
 }
 func (v MarketContextDTO) ToDomain() vo.MarketContext {
-	return vo.MarketContext{Code: v.codeColumns.toDomain(), Scope: v.Scope, Reference: v.Reference, AsOf: shared.MustTradeDate(v.AsOf), AvailableOn: shared.MustTradeDate(v.AvailableOn), Source: v.Source, Data: v.Data}
+	return vo.MarketContext{Code: v.CodeColumns.toDomain(), Scope: v.Scope, Reference: v.Reference, AsOf: shared.MustTradeDate(v.AsOf), AvailableOn: shared.MustTradeDate(v.AvailableOn), Source: v.Source, Data: v.Data}
 }

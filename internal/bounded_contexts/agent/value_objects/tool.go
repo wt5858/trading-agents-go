@@ -16,6 +16,7 @@ import (
 type ToolName string
 
 const (
+	ToolSearchEvidence     ToolName = "search_evidence"
 	ToolGetSectorContext   ToolName = "get_sector_context"
 	ToolGetIndexContext    ToolName = "get_index_context"
 	ToolGetQuote           ToolName = "get_quote"
@@ -28,7 +29,7 @@ const (
 
 // AllToolNames 返回全部内置工具名，顺序固定，便于展示与测试。
 func AllToolNames() []ToolName {
-	return []ToolName{
+	return []ToolName{ToolSearchEvidence,
 		ToolGetQuote, ToolGetKlines, ToolGetTechnicalIndics,
 		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment, ToolGetSectorContext, ToolGetIndexContext,
 	}
@@ -46,7 +47,7 @@ func NewToolName(s string) (ToolName, error) {
 
 func (n ToolName) Valid() bool {
 	switch n {
-	case ToolGetQuote, ToolGetKlines, ToolGetTechnicalIndics,
+	case ToolSearchEvidence, ToolGetQuote, ToolGetKlines, ToolGetTechnicalIndics,
 		ToolGetFinancials, ToolGetNews, ToolGetSocialSentiment, ToolGetSectorContext, ToolGetIndexContext:
 		return true
 	}
